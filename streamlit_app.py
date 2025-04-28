@@ -8,11 +8,11 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 import sys
 
-# 기본 설정
+# 페이지 설정
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
-# 한글 폰트
+# 한글 폰트 설정
 import matplotlib as mpl
 if sys.platform.startswith("win"):
     mpl.rcParams["font.family"] = "Malgun Gothic"
@@ -20,13 +20,24 @@ else:
     mpl.rcParams["font.family"] = "AppleGothic"
 mpl.rcParams["axes.unicode_minus"] = False
 
+# Streamlit sidebar 한글 글꼴
+st.markdown(
+    """
+    <style>
+      * { font-family: "Malgun Gothic", sans-serif !important; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # Snowflake 연결
 def get_conn():
+    creds = st.secrets["snowflake"]
     return snowflake.connector.connect(
-        user=st.secrets["user"],
-        password=st.secrets["password"],
-        account=st.secrets["account"],
-        warehouse=st.secrets["warehouse"],
+        user=creds["user"],
+        password=creds["password"],
+        account=creds["account"],
+        warehouse=creds["warehouse"],
         ocsp_fail_open=True,
         insecure_mode=True
     )
@@ -41,7 +52,7 @@ def load_query(q: str) -> pd.DataFrame:
     conn.close()
     return df
 
-# 쿼리 정의
+# SQL 쿼리
 Q_FP    = "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.FLOATING_POPULATION_INFO"
 Q_CARD  = "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.CARD_SALES_INFO"
 Q_ASSET = "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.ASSET_INCOME_INFO"
@@ -55,63 +66,66 @@ def load_all():
     scco  = load_query(Q_SCCO).sample(frac=0.01, random_state=42)
     return fp, card, asset, scco
 
-# 전처리
 def preprocess() -> pd.DataFrame:
     fp, card, asset, scco = load_all()
 
-    merged = pd.merge(fp, card,
-        on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER","TIME_SLOT","WEEKDAY_WEEKEND"],
-        how="inner", validate="m:m"
-    )
-    merged = pd.merge(merged, asset,
-        on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER"],
-        how="inner", validate="m:m"
-    )
+    # 병합
+    df = pd.merge(fp, card,
+                  on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER","TIME_SLOT","WEEKDAY_WEEKEND"],
+                  how="inner", validate="m:m")
+    df = pd.merge(df, asset,
+                  on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER"],
+                  how="inner", validate="m:m")
 
-    # 중복 컬럼 제거 및 이름 매핑
-    merged = merged.drop(columns=[c for c in merged if c.endswith(("_x","_y"))])
+    # 중복 컬럼 제거
+    df = df.drop(columns=[c for c in df.columns if c.endswith(("_x","_y"))])
+
+    # 행정동 이름 매핑
     name_map = (scco[["DISTRICT_CODE","DISTRICT_KOR_NAME"]]
                 .drop_duplicates("DISTRICT_CODE")
                 .set_index("DISTRICT_CODE")["DISTRICT_KOR_NAME"]
                 .to_dict())
-    merged["DISTRICT_KOR_NAME"] = merged["DISTRICT_CODE"].map(name_map)
+    df["DISTRICT_KOR_NAME"] = df["DISTRICT_CODE"].map(name_map)
 
-    # 파생 변수
-    merged["전체인구"] = (merged["RESIDENTIAL_POPULATION"]
-                      + merged["WORKING_POPULATION"]
-                      + merged["VISITING_POPULATION"])
-    merged["엔터전체매출"] = (merged[["FOOD_SALES","COFFEE_SALES","BEAUTY_SALES",
-                                   "ENTERTAINMENT_SALES","SPORTS_CULTURE_LEISURE_SALES",
-                                   "TRAVEL_SALES","CLOTHING_ACCESSORIES_SALES"]]
-                            .sum(axis=1))
-    merged["소비활력지수"] = merged["엔터전체매출"] / merged["전체인구"].replace(0,np.nan)
-    merged["유입지수"]     = merged["VISITING_POPULATION"] / (
-                         merged["RESIDENTIAL_POPULATION"] + merged["WORKING_POPULATION"]
-                         ).replace(0,np.nan)
-    merged["엔터매출비율"] = merged["엔터전체매출"] / merged["TOTAL_SALES"].replace(0,np.nan)
+    # 파생 변수 생성
+    df["전체인구"]      = df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"] + df["VISITING_POPULATION"]
+    df["엔터전체매출"]  = df[[
+        "FOOD_SALES","COFFEE_SALES","BEAUTY_SALES",
+        "ENTERTAINMENT_SALES","SPORTS_CULTURE_LEISURE_SALES",
+        "TRAVEL_SALES","CLOTHING_ACCESSORIES_SALES"
+    ]].sum(axis=1)
+    df["소비활력지수"]  = df["엔터전체매출"] / df["전체인구"].replace(0, np.nan)
+    df["유입지수"]      = df["VISITING_POPULATION"] / (
+                          df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"]
+                          ).replace(0, np.nan)
+    df["엔터매출비율"]  = df["엔터전체매출"] / df["TOTAL_SALES"].replace(0, np.nan)
 
-    cnt_cols = ["FOOD_COUNT","COFFEE_COUNT","BEAUTY_COUNT","ENTERTAINMENT_COUNT",
-                "SPORTS_CULTURE_LEISURE_COUNT","TRAVEL_COUNT","CLOTHING_ACCESSORIES_COUNT"]
-    merged["엔터전체방문자수"] = merged[cnt_cols].sum(axis=1)
-    merged["엔터방문자비율"]   = merged["엔터전체방문자수"] / merged["TOTAL_COUNT"].replace(0,np.nan)
-    merged["엔터활동밀도"]     = merged["엔터전체매출"] / merged["전체인구"].replace(0,np.nan)
-    merged["엔터매출밀도"]     = merged["엔터전체매출"] / merged["엔터전체방문자수"].replace(0,np.nan)
+    cnt_cols = [
+        "FOOD_COUNT","COFFEE_COUNT","BEAUTY_COUNT","ENTERTAINMENT_COUNT",
+        "SPORTS_CULTURE_LEISURE_COUNT","TRAVEL_COUNT","CLOTHING_ACCESSORIES_COUNT"
+    ]
+    df["엔터전체방문자수"] = df[cnt_cols].sum(axis=1)
+    df["엔터방문자비율"]   = df["엔터전체방문자수"] / df["TOTAL_COUNT"].replace(0, np.nan)
+    df["엔터활동밀도"]     = df["엔터전체매출"] / df["전체인구"].replace(0, np.nan)
+    df["엔터매출밀도"]     = df["엔터전체매출"] / df["엔터전체방문자수"].replace(0, np.nan)
 
     # FEEL_IDX 계산
-    emo_vars = ["엔터전체매출","소비활력지수","유입지수","엔터매출비율",
-                "엔터전체방문자수","엔터방문자비율","엔터활동밀도","엔터매출밀도"]
-    X = merged[emo_vars].dropna()
+    emo_vars = [
+        "엔터전체매출","소비활력지수","유입지수","엔터매출비율",
+        "엔터전체방문자수","엔터방문자비율","엔터활동밀도","엔터매출밀도"
+    ]
+    X = df[emo_vars].dropna()
     pc1 = PCA(n_components=1).fit_transform(StandardScaler().fit_transform(X))
-    norm = (pc1 - pc1.min()) / (pc1.max() - pc1.min() + 1e-9)
-    merged.loc[X.index, "FEEL_IDX"] = norm.flatten()
+    pc1_n = (pc1 - pc1.min()) / (pc1.max() - pc1.min() + 1e-9)
+    df.loc[X.index, "FEEL_IDX"] = pc1_n.flatten()
 
-    return merged
+    return df
 
 @st.cache_data(show_spinner=True)
 def get_data():
     return preprocess()
 
-# UI
+# 앱 UI
 st.title("서울시 인스타 감성 지수 분석")
 data = get_data()
 
@@ -127,12 +141,12 @@ mask = (
 )
 view = data.loc[mask]
 
-# 요약
+# 요약 지표
 st.subheader("요약 지표")
 c1, c2, c3 = st.columns(3)
-c1.metric("평균 FEEL_IDX",       f"{view['FEEL_IDX'].mean():.2f}")
-c2.metric("평균 소비활력지수",    f"{view['소비활력지수'].mean():.2f}")
-c3.metric("평균 유입지수",       f"{view['유입지수'].mean():.2f}")
+c1.metric("평균 FEEL_IDX",    f"{view['FEEL_IDX'].mean():.2f}")
+c2.metric("평균 소비활력지수", f"{view['소비활력지수'].mean():.2f}")
+c3.metric("평균 유입지수",    f"{view['유입지수'].mean():.2f}")
 
 tab1, tab2, tab3 = st.tabs(["지수 상위 지역","성별·연령 분석","산점도"])
 with tab1:
