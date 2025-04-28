@@ -79,10 +79,12 @@ def preprocess() -> pd.DataFrame:
     data["엔터활동밀도"]  = data["엔터전체매출"] / data["전체인구"].replace(0, np.nan)
     data["엔터매출밀도"]  = data["엔터전체매출"] / data["엔터전체방문자수"].replace(0, np.nan)
 
+    # FEEL_IDX
     emo_vars = [
         "엔터전체매출","소비활력지수","유입지수","엔터매출비율",
         "엔터전체방문자수","엔터방문자비율","엔터활동밀도","엔터매출밀도"
     ]
+    data["FEEL_IDX"] = np.nan  # ← 기본 열 확보
     X = (
         data[emo_vars]
         .apply(pd.to_numeric, errors="coerce")
@@ -112,7 +114,7 @@ with st.sidebar:
     ages      = st.multiselect("연령대",  sorted(data["AGE_GROUP"].unique()), [])
     gender    = st.multiselect("성별", ["M","F"], [])
 
-mask = pd.Series(True, index=data.index)            # ← 빈 필터 대비 기본 시리즈
+mask = pd.Series(True, index=data.index)
 if districts:
     mask &= data["DISTRICT_KOR_NAME"].isin(districts)
 if ages:
