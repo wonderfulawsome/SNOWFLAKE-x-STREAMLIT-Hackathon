@@ -27,7 +27,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 # ── Snowflake 연결 ────────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
 def get_conn():
