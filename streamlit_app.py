@@ -42,7 +42,7 @@ Q_FP, Q_CARD, Q_ASSET, Q_SCCO = (
 def preprocess():
     fp, card, asset, scco = load(Q_FP), load(Q_CARD), load(Q_ASSET), load(Q_SCCO)
 
-    fp = fp.sample(frac=0.05, random_state=42)            # FP 테이블만 5 % 샘플
+    fp = fp.sample(frac=0.01, random_state=42)            # FP 테이블만 5 % 샘플
     fp_card  = pd.merge(fp, card,  how="left", on=[
         "STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER","TIME_SLOT","WEEKDAY_WEEKEND"])
     data = pd.merge(fp_card, asset, how="left", on=[
