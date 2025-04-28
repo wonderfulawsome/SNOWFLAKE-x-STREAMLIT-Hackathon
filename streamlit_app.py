@@ -7,27 +7,19 @@ from sklearn.decomposition import PCA
 os.environ["STREAMLIT_SERVER_HEALTH_CHECK_ENABLED"] = "false"
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
-
 import matplotlib
 matplotlib.rcParams["font.family"] = "Malgun Gothic"
 matplotlib.rcParams["axes.unicode_minus"] = False
-st.markdown(
-    '<style>*{font-family:"Malgun Gothic",sans-serif!important;}</style>',
-    unsafe_allow_html=True,
-)
+st.markdown('<style>*{font-family:"Malgun Gothic",sans-serif!important;}</style>', unsafe_allow_html=True)
 st.write("🚀 Streamlit 앱 시작!")
 
 # ───────── Snowflake 연결 ─────────
 @st.cache_resource(show_spinner=False)
 def get_conn():
-    s = st.secrets["snowflake"]                     # [snowflake] 섹션
+    s = st.secrets["snowflake"]
     return sf.connect(
-        user=s["user"],
-        password=s["password"],
-        account=s["account"],                       # 예: TGLBRLT-EKB57194
-        warehouse="COMPUTE_WH",
-        ocsp_fail_open=True,
-        insecure_mode=True,
+        user=s["user"], password=s["password"], account=s["account"],
+        warehouse="COMPUTE_WH", ocsp_fail_open=True, insecure_mode=True
     )
 
 def load(q: str) -> pd.DataFrame:
@@ -35,7 +27,7 @@ def load(q: str) -> pd.DataFrame:
         cur.execute(q)
         return pd.DataFrame(cur.fetchall(), columns=[c[0] for c in cur.description])
 
-# ───────── 쿼리 (LIMIT 3 000) ─────────
+# ───────── 쿼리 (LIMIT 3000) ─────────
 BASE  = "SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA"
 LIMIT = 3000
 Q_FP   = f"SELECT * FROM {BASE}.FLOATING_POPULATION_INFO LIMIT {LIMIT}"
@@ -50,17 +42,13 @@ def preprocess() -> pd.DataFrame:
 
     fp_card = pd.merge(
         fp, card, how="left",
-        on=[
-            "STANDARD_YEAR_MONTH", "DISTRICT_CODE", "AGE_GROUP",
-            "GENDER", "TIME_SLOT", "WEEKDAY_WEEKEND"
-        ]
+        on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER","TIME_SLOT","WEEKDAY_WEEKEND"]
     )
     data = pd.merge(
         fp_card, asset, how="left",
-        on=["STANDARD_YEAR_MONTH", "DISTRICT_CODE", "AGE_GROUP", "GENDER"]
+        on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER"]
     )
 
-    # 행정동 한글 이름 매핑
     data["DISTRICT_KOR_NAME"] = data["DISTRICT_CODE"].map(
         scco.drop_duplicates("DISTRICT_CODE")
             .set_index("DISTRICT_CODE")["DISTRICT_KOR_NAME"]
@@ -68,12 +56,12 @@ def preprocess() -> pd.DataFrame:
 
     # 파생 변수
     data["전체인구"] = data[
-        ["RESIDENTIAL_POPULATION", "WORKING_POPULATION", "VISITING_POPULATION"]
+        ["RESIDENTIAL_POPULATION","WORKING_POPULATION","VISITING_POPULATION"]
     ].sum(axis=1)
 
     sales_cols = [
-        "FOOD_SALES", "COFFEE_SALES", "BEAUTY_SALES", "ENTERTAINMENT_SALES",
-        "SPORTS_CULTURE_LEISURE_SALES", "TRAVEL_SALES", "CLOTHING_ACCESSORIES_SALES"
+        "FOOD_SALES","COFFEE_SALES","BEAUTY_SALES","ENTERTAINMENT_SALES",
+        "SPORTS_CULTURE_LEISURE_SALES","TRAVEL_SALES","CLOTHING_ACCESSORIES_SALES"
     ]
     data["엔터전체매출"] = data[sales_cols].sum(axis=1)
     data["소비활력지수"] = data["엔터전체매출"] / data["전체인구"].replace(0, np.nan)
@@ -124,12 +112,15 @@ with st.sidebar:
     ages      = st.multiselect("연령대",  sorted(data["AGE_GROUP"].unique()), [])
     gender    = st.multiselect("성별", ["M","F"], [])
 
-mask = (
-    (data["DISTRICT_KOR_NAME"].isin(districts) if districts else True) &
-    (data["AGE_GROUP"].isin(ages)              if ages else True) &
-    (data["GENDER"].isin(gender)               if gender else True)
-)
-view = data.loc[mask]
+mask = pd.Series(True, index=data.index)            # ← 빈 필터 대비 기본 시리즈
+if districts:
+    mask &= data["DISTRICT_KOR_NAME"].isin(districts)
+if ages:
+    mask &= data["AGE_GROUP"].isin(ages)
+if gender:
+    mask &= data["GENDER"].isin(gender)
+
+view = data[mask]
 
 # ───────── 요약 지표 ─────────
 c1, c2, c3 = st.columns(3)
