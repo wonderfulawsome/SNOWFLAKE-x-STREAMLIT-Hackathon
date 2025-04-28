@@ -8,50 +8,44 @@ os.environ["STREAMLIT_SERVER_HEALTH_CHECK_ENABLED"] = "false"
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 import matplotlib
-matplotlib.rcParams["font.family"] = "Malgun Gothic"
-matplotlib.rcParams["axes.unicode_minus"] = False
+matplotlib.rcParams["font.family"] = "Malgun Gothic"; matplotlib.rcParams["axes.unicode_minus"] = False
 st.markdown('<style>*{font-family:"Malgun Gothic",sans-serif!important;}</style>', unsafe_allow_html=True)
 st.write("🚀 Streamlit 앱 시작!")
 
 # ───────── Snowflake 연결 ─────────
+@st.cache_resource(show_spinner=False)
 def get_conn():
-    s = st.secrets["snowflake"]          # secrets.toml 의 [snowflake] 섹션
-    return sf.connect(
-        user=s["user"], password=s["password"], account=s["account"],
-        warehouse="COMPUTE_WH", ocsp_fail_open=True, insecure_mode=True
-    )
+    s = st.secrets["snowflake"]
+    return sf.connect(user=s["user"], password=s["password"], account=s["account"],
+                      warehouse="COMPUTE_WH", ocsp_fail_open=True, insecure_mode=True)
 
-@st.cache_data(show_spinner=False)
 def load(q: str) -> pd.DataFrame:
-    with get_conn() as c:
-        cur = c.cursor(); cur.execute(q)
-        df = pd.DataFrame(cur.fetchall(), columns=[x[0] for x in cur.description])
-        cur.close()
-    return df
+    with get_conn().cursor() as cur:
+        cur.execute(q)
+        return pd.DataFrame(cur.fetchall(), columns=[c[0] for c in cur.description])
 
+# ---------- 쿼리 (LIMIT 3 000) ----------
 BASE = "SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA"
-Q_FP, Q_CARD, Q_ASSET, Q_SCCO = (
-    f"SELECT * FROM {BASE}.FLOATING_POPULATION_INFO",
-    f"SELECT * FROM {BASE}.CARD_SALES_INFO",
-    f"SELECT * FROM {BASE}.ASSET_INCOME_INFO",
-    f"SELECT * FROM {BASE}.M_SCCO_MST",
-)
+LIMIT = 3000
+Q_FP   = f"SELECT * FROM {BASE}.FLOATING_POPULATION_INFO LIMIT {LIMIT}"
+Q_CARD = f"SELECT * FROM {BASE}.CARD_SALES_INFO           LIMIT {LIMIT}"
+Q_ASSET= f"SELECT * FROM {BASE}.ASSET_INCOME_INFO         LIMIT {LIMIT}"
+Q_SCCO = f"SELECT * FROM {BASE}.M_SCCO_MST"
 
 # ───────── 전처리 ─────────
 @st.cache_data(show_spinner=True)
 def preprocess():
     fp, card, asset, scco = load(Q_FP), load(Q_CARD), load(Q_ASSET), load(Q_SCCO)
 
-    fp = fp.sample(frac=0.01, random_state=42)            # FP 테이블만 5 % 샘플
-    fp_card  = pd.merge(fp, card,  how="left", on=[
-        "STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER","TIME_SLOT","WEEKDAY_WEEKEND"])
-    data = pd.merge(fp_card, asset, how="left", on=[
-        "STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER"])
+    fp_card = pd.merge(fp, card, how="left",
+        on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER","TIME_SLOT","WEEKDAY_WEEKEND"])
+    data = pd.merge(fp_card, asset, how="left",
+        on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER"])
 
     data["DISTRICT_KOR_NAME"] = data["DISTRICT_CODE"].map(
         scco.drop_duplicates("DISTRICT_CODE").set_index("DISTRICT_CODE")["DISTRICT_KOR_NAME"])
 
-    # ─ 파생 변수
+    # 파생 변수
     data["전체인구"] = data[["RESIDENTIAL_POPULATION","WORKING_POPULATION","VISITING_POPULATION"]].sum(axis=1)
     sales_cols = ["FOOD_SALES","COFFEE_SALES","BEAUTY_SALES","ENTERTAINMENT_SALES",
                   "SPORTS_CULTURE_LEISURE_SALES","TRAVEL_SALES","CLOTHING_ACCESSORIES_SALES"]
@@ -80,11 +74,10 @@ def preprocess():
 data = preprocess()
 st.title("서울시 인스타 감성 지수 분석")
 
-if data.empty:
-    st.error("데이터가 없습니다.")
-    st.stop()
+if data.empty():
+    st.error("데이터가 없습니다."); st.stop()
 
-# ───────── 사이드바 필터 ─────────
+# ───────── 사이드바 ─────────
 with st.sidebar:
     districts = st.multiselect("행정동", sorted(data["DISTRICT_KOR_NAME"].dropna().unique()), [])
     ages      = st.multiselect("연령대",  sorted(data["AGE_GROUP"].unique()), [])
