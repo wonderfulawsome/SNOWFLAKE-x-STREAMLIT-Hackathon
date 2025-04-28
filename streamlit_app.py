@@ -49,7 +49,7 @@ def preprocess() -> pd.DataFrame:
     )
 
     # 1 % 샘플링
-    data = data.sample(frac=0.01, random_state=42)
+    data = data.sample(frac=0.005, random_state=42)
 
     data["DISTRICT_KOR_NAME"] = data["DISTRICT_CODE"].map(
         scco.drop_duplicates("DISTRICT_CODE")
