@@ -8,10 +8,10 @@ import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
-# ── 필수: Streamlit health-check 타임아웃 끄기 ──
+# health-check 끄기
 os.environ["STREAMLIT_SERVER_HEALTH_CHECK_ENABLED"] = "false"
 
-# 기본 세팅
+# 기본 설정
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
@@ -26,8 +26,6 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-# 디버그 표시
 st.write("🚀 Streamlit 앱 시작!")
 
 # Snowflake 연결
@@ -38,7 +36,7 @@ def get_conn():
         account=st.secrets["snowflake"]["account"],
         warehouse="COMPUTE_WH",
         ocsp_fail_open=True,
-        insecure_mode=True
+        insecure_mode=True,
     )
 
 @st.cache_data(show_spinner=False)
@@ -50,7 +48,7 @@ def load_query(q: str) -> pd.DataFrame:
     cur.close(); conn.close()
     return df
 
-# 쿼리 (행 제한 추가)
+# 쿼리
 BASE = "SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA"
 Q_FP   = f"SELECT * FROM {BASE}.FLOATING_POPULATION_INFO LIMIT 8000"
 Q_CARD = f"SELECT * FROM {BASE}.CARD_SALES_INFO           LIMIT 8000"
@@ -59,16 +57,17 @@ Q_SCCO = f"SELECT * FROM {BASE}.M_SCCO_MST"
 
 @st.cache_data(show_spinner=True)
 def load_all():
-    return (load_query(Q_FP),
-            load_query(Q_CARD),
-            load_query(Q_ASSET),
-            load_query(Q_SCCO))
+    return (
+        load_query(Q_FP),
+        load_query(Q_CARD),
+        load_query(Q_ASSET),
+        load_query(Q_SCCO),
+    )
 
 # 전처리
 def preprocess() -> pd.DataFrame:
     fp, card, asset, scco = load_all()
 
-    # 초반 2 % 샘플링
     fp    = fp.sample(frac=0.02, random_state=42)
     card  = card.sample(frac=0.02, random_state=42)
     asset = asset.sample(frac=0.02, random_state=42)
@@ -96,10 +95,8 @@ def preprocess() -> pd.DataFrame:
         .to_dict()
     )
     fp_card_asset["DISTRICT_KOR_NAME"] = fp_card_asset["DISTRICT_CODE"].map(scco_map)
-
     data = fp_card_asset
 
-    # 파생 변수
     data["전체인구"] = (
         data["RESIDENTIAL_POPULATION"]
         + data["WORKING_POPULATION"]
@@ -131,8 +128,19 @@ def preprocess() -> pd.DataFrame:
         "엔터전체매출","소비활력지수","유입지수","엔터매출비율",
         "엔터전체방문자수","엔터방문자비율","엔터활동밀도","엔터매출밀도"
     ]
-    X = data[emo_vars].dropna()
-    pc1 = PCA(n_components=1).fit_transform(StandardScaler().fit_transform(X))
+    X = (
+        data[emo_vars]
+        .apply(pd.to_numeric, errors="coerce")
+        .replace([np.inf, -np.inf], np.nan)
+        .dropna()
+    )
+
+    if X.empty:
+        data["FEEL_IDX"] = np.nan
+        return data
+
+    scaler = StandardScaler().fit(X)
+    pc1 = PCA(n_components=1).fit_transform(scaler.transform(X))
     pc1_n = (pc1 - pc1.min()) / (pc1.max() - pc1.min() + 1e-9)
     data.loc[X.index, "FEEL_IDX"] = pc1_n
 
