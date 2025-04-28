@@ -27,12 +27,11 @@ def load(q: str) -> pd.DataFrame:
         cur.execute(q)
         return pd.DataFrame(cur.fetchall(), columns=[c[0] for c in cur.description])
 
-# ───────── 쿼리 (LIMIT 3000) ─────────
-BASE  = "SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA"
-LIMIT = 3000
-Q_FP   = f"SELECT * FROM {BASE}.FLOATING_POPULATION_INFO LIMIT {LIMIT}"
-Q_CARD = f"SELECT * FROM {BASE}.CARD_SALES_INFO           LIMIT {LIMIT}"
-Q_ASSET= f"SELECT * FROM {BASE}.ASSET_INCOME_INFO         LIMIT {LIMIT}"
+# ───────── 쿼리(전건) ─────────
+BASE = "SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA"
+Q_FP   = f"SELECT * FROM {BASE}.FLOATING_POPULATION_INFO"
+Q_CARD = f"SELECT * FROM {BASE}.CARD_SALES_INFO"
+Q_ASSET= f"SELECT * FROM {BASE}.ASSET_INCOME_INFO"
 Q_SCCO = f"SELECT * FROM {BASE}.M_SCCO_MST"
 
 # ───────── 전처리 ─────────
@@ -48,6 +47,9 @@ def preprocess() -> pd.DataFrame:
         fp_card, asset, how="left",
         on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER"]
     )
+
+    # 1 % 샘플링
+    data = data.sample(frac=0.01, random_state=42)
 
     data["DISTRICT_KOR_NAME"] = data["DISTRICT_CODE"].map(
         scco.drop_duplicates("DISTRICT_CODE")
@@ -80,11 +82,11 @@ def preprocess() -> pd.DataFrame:
     data["엔터매출밀도"]  = data["엔터전체매출"] / data["엔터전체방문자수"].replace(0, np.nan)
 
     # FEEL_IDX
+    data["FEEL_IDX"] = np.nan
     emo_vars = [
         "엔터전체매출","소비활력지수","유입지수","엔터매출비율",
         "엔터전체방문자수","엔터방문자비율","엔터활동밀도","엔터매출밀도"
     ]
-    data["FEEL_IDX"] = np.nan  # ← 기본 열 확보
     X = (
         data[emo_vars]
         .apply(pd.to_numeric, errors="coerce")
