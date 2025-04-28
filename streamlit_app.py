@@ -30,9 +30,9 @@ st.markdown(
 # Snowflake 연결
 def get_conn():
     return snowflake.connector.connect(
-        user=st.secrets["user"],
-        password=st.secrets["password"],
-        account=st.secrets["account"],
+        user=st.secrets["snowflake"]["user"],
+        password=st.secrets["snowflake"]["password"],
+        account=st.secrets["snowflake"]["account"],
         warehouse="COMPUTE_WH",
         ocsp_fail_open=True,
         insecure_mode=True
