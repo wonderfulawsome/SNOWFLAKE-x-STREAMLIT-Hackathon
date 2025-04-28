@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import snowflake.connector
 import pandas as pd
@@ -7,23 +8,27 @@ import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
+# ── 필수: Streamlit health-check 타임아웃 끄기 ──
+os.environ["STREAMLIT_SERVER_HEALTH_CHECK_ENABLED"] = "false"
+
 # 기본 세팅
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
-# Matplotlib 한글 폰트 설정
+# 한글 폰트
 import matplotlib
 matplotlib.rcParams["font.family"] = "Malgun Gothic"
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 st.markdown(
     """
-    <style>
-    * { font-family: "Malgun Gothic", sans-serif !important; }
-    </style>
+    <style>* { font-family: "Malgun Gothic", sans-serif !important; }</style>
     """,
     unsafe_allow_html=True,
 )
+
+# 디버그 표시
+st.write("🚀 Streamlit 앱 시작!")
 
 # Snowflake 연결
 def get_conn():
@@ -45,11 +50,12 @@ def load_query(q: str) -> pd.DataFrame:
     cur.close(); conn.close()
     return df
 
-# 쿼리
-Q_FP   = """SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.FLOATING_POPULATION_INFO"""
-Q_CARD = """SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.CARD_SALES_INFO"""
-Q_ASSET= """SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.ASSET_INCOME_INFO"""
-Q_SCCO = """SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.M_SCCO_MST"""
+# 쿼리 (행 제한 추가)
+BASE = "SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA"
+Q_FP   = f"SELECT * FROM {BASE}.FLOATING_POPULATION_INFO LIMIT 8000"
+Q_CARD = f"SELECT * FROM {BASE}.CARD_SALES_INFO           LIMIT 8000"
+Q_ASSET= f"SELECT * FROM {BASE}.ASSET_INCOME_INFO         LIMIT 8000"
+Q_SCCO = f"SELECT * FROM {BASE}.M_SCCO_MST"
 
 @st.cache_data(show_spinner=True)
 def load_all():
@@ -62,24 +68,22 @@ def load_all():
 def preprocess() -> pd.DataFrame:
     fp, card, asset, scco = load_all()
 
-    # 초반에 5%만 샘플링
-    fp = fp.sample(frac=0.05, random_state=42)
-    card = card.sample(frac=0.05, random_state=42)
-    asset = asset.sample(frac=0.05, random_state=42)
+    # 초반 2 % 샘플링
+    fp    = fp.sample(frac=0.02, random_state=42)
+    card  = card.sample(frac=0.02, random_state=42)
+    asset = asset.sample(frac=0.02, random_state=42)
 
     fp_card = pd.merge(
         fp, card,
         on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER",
             "TIME_SLOT","WEEKDAY_WEEKEND"],
-        how="inner",
-        validate="m:m"
+        how="inner", validate="m:m"
     )
 
     fp_card_asset = pd.merge(
         fp_card, asset,
         on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER"],
-        how="inner",
-        validate="m:m"
+        how="inner", validate="m:m"
     )
 
     dup_cols = [c for c in fp_card_asset.columns if c.endswith(("_x", "_y"))]
@@ -95,6 +99,7 @@ def preprocess() -> pd.DataFrame:
 
     data = fp_card_asset
 
+    # 파생 변수
     data["전체인구"] = (
         data["RESIDENTIAL_POPULATION"]
         + data["WORKING_POPULATION"]
