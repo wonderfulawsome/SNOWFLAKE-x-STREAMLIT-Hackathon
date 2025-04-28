@@ -8,7 +8,7 @@ import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
-# health-check 끄기
+# health-check 타임아웃 끄기
 os.environ["STREAMLIT_SERVER_HEALTH_CHECK_ENABLED"] = "false"
 
 # 기본 설정
@@ -26,7 +26,7 @@ st.markdown(
 )
 st.write("🚀 Streamlit 앱 시작!")
 
-# Snowflake 연결
+# ── Snowflake 연결 ────────────────────────────
 def get_conn():
     return snowflake.connector.connect(
         user=st.secrets["snowflake"]["user"],
@@ -46,7 +46,6 @@ def load_query(q: str) -> pd.DataFrame:
     cur.close(); conn.close()
     return df
 
-# 쿼리
 BASE = "SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA"
 Q_FP   = f"SELECT * FROM {BASE}.FLOATING_POPULATION_INFO LIMIT 8000"
 Q_CARD = f"SELECT * FROM {BASE}.CARD_SALES_INFO           LIMIT 8000"
@@ -55,14 +54,16 @@ Q_SCCO = f"SELECT * FROM {BASE}.M_SCCO_MST"
 
 @st.cache_data(show_spinner=True)
 def load_all():
-    return load_query(Q_FP), load_query(Q_CARD), load_query(Q_ASSET), load_query(Q_SCCO)
+    return (
+        load_query(Q_FP),
+        load_query(Q_CARD),
+        load_query(Q_ASSET),
+        load_query(Q_SCCO),
+    )
 
-# 전처리
+# ── 전처리 ─────────────────────────────────────
 def preprocess() -> pd.DataFrame:
     fp, card, asset, scco = load_all()
-    fp    = fp.sample(frac=0.02, random_state=42)
-    card  = card.sample(frac=0.02, random_state=42)
-    asset = asset.sample(frac=0.02, random_state=42)
 
     fp_card = pd.merge(
         fp, card,
@@ -85,8 +86,11 @@ def preprocess() -> pd.DataFrame:
         .to_dict()
     )
     fp_card_asset["DISTRICT_KOR_NAME"] = fp_card_asset["DISTRICT_CODE"].map(scco_map)
-    data = fp_card_asset
 
+    # ⬇ 필요한 만큼만 샘플링 (교집합 후)
+    data = fp_card_asset.sample(frac=0.02, random_state=42)
+
+    # 파생 변수
     data["전체인구"] = (
         data["RESIDENTIAL_POPULATION"] + data["WORKING_POPULATION"] + data["VISITING_POPULATION"]
     )
@@ -134,13 +138,12 @@ def preprocess() -> pd.DataFrame:
 def get_data():
     return preprocess()
 
-# UI
+# ── UI ────────────────────────────────────────
 st.title("서울시 인스타 감성 지수 분석")
 data = get_data()
 
-# 행이 없으면 중단
 if data.empty:
-    st.warning("선택한 조건에 해당하는 데이터가 없습니다.")
+    st.warning("데이터가 없습니다. 샘플링 비율을 높여 보세요.")
     st.stop()
 
 with st.sidebar:
