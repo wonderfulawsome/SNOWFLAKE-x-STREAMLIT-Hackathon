@@ -11,16 +11,14 @@ from sklearn.decomposition import PCA
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
-# ──── NEW: Matplotlib ‧ Streamlit 한글 폰트 설정 ────
+# Matplotlib 한글 폰트 설정
 import matplotlib
-matplotlib.rcParams["font.family"] = "Malgun Gothic"   # 윈도 기본 한글 폰트
-matplotlib.rcParams["axes.unicode_minus"] = False      # - 기호 깨짐 방지
-import streamlit as st
+matplotlib.rcParams["font.family"] = "Malgun Gothic"
+matplotlib.rcParams["axes.unicode_minus"] = False
 
 st.markdown(
     """
     <style>
-    /* Streamlit 기본 글꼴을 한글 지원 폰트로 변경 */
     * { font-family: "Malgun Gothic", sans-serif !important; }
     </style>
     """,
@@ -41,7 +39,7 @@ def get_conn():
 @st.cache_data(show_spinner=False)
 def load_query(q: str) -> pd.DataFrame:
     conn = get_conn()
-    cur  = conn.cursor()
+    cur = conn.cursor()
     cur.execute(q)
     df = pd.DataFrame(cur.fetchall(), columns=[c[0] for c in cur.description])
     cur.close(); conn.close()
@@ -63,6 +61,11 @@ def load_all():
 # 전처리
 def preprocess() -> pd.DataFrame:
     fp, card, asset, scco = load_all()
+
+    # 초반에 5%만 샘플링
+    fp = fp.sample(frac=0.05, random_state=42)
+    card = card.sample(frac=0.05, random_state=42)
+    asset = asset.sample(frac=0.05, random_state=42)
 
     fp_card = pd.merge(
         fp, card,
@@ -92,7 +95,6 @@ def preprocess() -> pd.DataFrame:
 
     data = fp_card_asset
 
-    # 파생 변수
     data["전체인구"] = (
         data["RESIDENTIAL_POPULATION"]
         + data["WORKING_POPULATION"]
@@ -106,7 +108,7 @@ def preprocess() -> pd.DataFrame:
     )
 
     data["소비활력지수"] = data["엔터전체매출"] / data["전체인구"].replace(0, np.nan)
-    data["유입지수"]   = data["VISITING_POPULATION"] / (
+    data["유입지수"] = data["VISITING_POPULATION"] / (
         data["RESIDENTIAL_POPULATION"] + data["WORKING_POPULATION"]
     ).replace(0, np.nan)
     data["엔터매출비율"] = data["엔터전체매출"] / data["TOTAL_SALES"].replace(0, np.nan)
@@ -117,8 +119,8 @@ def preprocess() -> pd.DataFrame:
     ]
     data["엔터전체방문자수"] = data[cnt_cols].sum(axis=1)
     data["엔터방문자비율"] = data["엔터전체방문자수"] / data["TOTAL_COUNT"].replace(0, np.nan)
-    data["엔터활동밀도"]   = data["엔터전체매출"] / data["전체인구"].replace(0, np.nan)
-    data["엔터매출밀도"]   = data["엔터전체매출"] / data["엔터전체방문자수"].replace(0, np.nan)
+    data["엔터활동밀도"] = data["엔터전체매출"] / data["전체인구"].replace(0, np.nan)
+    data["엔터매출밀도"] = data["엔터전체매출"] / data["엔터전체방문자수"].replace(0, np.nan)
 
     emo_vars = [
         "엔터전체매출","소비활력지수","유입지수","엔터매출비율",
@@ -128,8 +130,6 @@ def preprocess() -> pd.DataFrame:
     pc1 = PCA(n_components=1).fit_transform(StandardScaler().fit_transform(X))
     pc1_n = (pc1 - pc1.min()) / (pc1.max() - pc1.min() + 1e-9)
     data.loc[X.index, "FEEL_IDX"] = pc1_n
-
-    data = data.sample(frac=0.01, random_state=42)
 
     return data
 
@@ -176,7 +176,7 @@ with tab1:
 
 with tab2:
     agg = (
-        view.groupby(["AGE_GROUP","GENDER"])["TOTAL_SALES"]
+        view.groupby(["AGE_GROUP", "GENDER"])["TOTAL_SALES"]
         .mean()
         .reset_index()
     )
