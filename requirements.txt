@@ -5,3 +5,4 @@ numpy
 matplotlib
 seaborn
 scikit-learn
+pyarrow==18.0.2 
