@@ -8,7 +8,7 @@ import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
-# health-check 타임아웃 끄기
+# health-check 끄기
 os.environ["STREAMLIT_SERVER_HEALTH_CHECK_ENABLED"] = "false"
 
 # 기본 설정
@@ -86,9 +86,7 @@ def preprocess() -> pd.DataFrame:
         .to_dict()
     )
     fp_card_asset["DISTRICT_KOR_NAME"] = fp_card_asset["DISTRICT_CODE"].map(scco_map)
-
-    # ⬇ 필요한 만큼만 샘플링 (교집합 후)
-    data = fp_card_asset.sample(frac=0.02, random_state=42)
+    data = fp_card_asset            # 더 이상 샘플링 없음
 
     # 파생 변수
     data["전체인구"] = (
@@ -143,7 +141,7 @@ st.title("서울시 인스타 감성 지수 분석")
 data = get_data()
 
 if data.empty:
-    st.warning("데이터가 없습니다. 샘플링 비율을 높여 보세요.")
+    st.error("데이터가 로드되지 않았습니다.")
     st.stop()
 
 with st.sidebar:
