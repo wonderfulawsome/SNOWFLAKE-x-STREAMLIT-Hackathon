@@ -36,7 +36,7 @@ def get_conn():
         user=st.secrets["snowflake"]["user"],
         password=st.secrets["snowflake"]["password"],
         account=st.secrets["snowflake"]["account"],
-        warehouse=st.secrets["snowflake"]["warehouse"],
+        warehouse=st.secrets["warehouse"],
         ocsp_fail_open=True,
         insecure_mode=True
     )
