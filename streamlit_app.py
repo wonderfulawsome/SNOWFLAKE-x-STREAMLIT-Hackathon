@@ -13,33 +13,29 @@ from sklearn.decomposition import PCA
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
-import matplotlib
-matplotlib.rcParams["font.family"] = "Malgun Gothic"
-matplotlib.rcParams["axes.unicode_minus"] = False
-st.markdown(
-    """
+# 웹용 한글 폰트 (fallback 포함)
+st.markdown("""
     <style>
-      * { font-family: "Malgun Gothic", sans-serif !important; }
+    html, body, [class*="css"]  {
+        font-family: 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+    }
     </style>
-    """,
-    unsafe_allow_html=True,
-)
+    """, unsafe_allow_html=True)
 
-# ──── NEW: Matplotlib ‧ Streamlit 한글 폰트 설정 ────
-import matplotlib
-matplotlib.rcParams["font.family"] = "Malgun Gothic"   # 윈도 기본 한글 폰트
-matplotlib.rcParams["axes.unicode_minus"] = False      # - 기호 깨짐 방지
-import streamlit as st
+# ── 한글 폰트 (환경·배포 무관 안전)
+def set_korean_font():
+    local_font = Path(__file__).parent / "assets" / "NanumGothic.ttf"
+    if local_font.exists():
+        plt.rc("font", family=fm.FontProperties(fname=str(local_font)).get_name())
+        return
+    for cand in ["NanumGothic", "Noto Sans KR", "AppleGothic"]:
+        if any(cand in fp for fp in fm.findSystemFonts()):
+            plt.rc("font", family=cand)
+            return
+    plt.rc("font", family="DejaVu Sans")          # 마지막 fallback
 
-st.markdown(
-    """
-    <style>
-    /* Streamlit 기본 글꼴을 한글 지원 폰트로 변경 */
-    * { font-family: "Malgun Gothic", sans-serif !important; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+set_korean_font()
+plt.rcParams["axes.unicode_minus"] = False
 
 # ─────────────────────────────
 # 1. 데이터 로드
@@ -60,7 +56,7 @@ except FileNotFoundError as e:
     st.stop()
 
 # ─────────────────────────────
-# 2. 병합 & 매핑
+# 2. 병합 & 파생
 # ─────────────────────────────
 merge_keys = [
     "PROVINCE_CODE", "CITY_CODE", "DISTRICT_CODE",
@@ -75,15 +71,34 @@ if "DISTRICT_KOR_NAME" in scco_df.columns:
 else:
     df["DISTRICT_KOR_NAME"] = df["DISTRICT_CODE"].astype(str)
 
+# 파생 변수 생성
+df["전체인구"] = (
+    df["RESIDENTIAL_POPULATION"]
+    + df["WORKING_POPULATION"]
+    + df["VISITING_POPULATION"]
+)
+df["엔터전체매출"] = (
+    df["FOOD_SALES"] + df["COFFEE_SALES"] + df["BEAUTY_SALES"]
+    + df["ENTERTAINMENT_SALES"] + df["SPORTS_CULTURE_LEISURE_SALES"]
+    + df["TRAVEL_SALES"] + df["CLOTHING_ACCESSORIES_SALES"]
+)
+df["소비활력지수"] = df["엔터전체매출"] / df["전체인구"].replace(0, np.nan)
+df["유입지수"] = df["VISITING_POPULATION"] / (
+    df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"]
+).replace(0, np.nan)
+df["엔터매출비율"] = df["엔터전체매출"] / df["TOTAL_SALES"].replace(0, np.nan)
+
+cnt_cols = [
+    "FOOD_COUNT","COFFEE_COUNT","BEAUTY_COUNT","ENTERTAINMENT_COUNT",
+    "SPORTS_CULTURE_LEISURE_COUNT","TRAVEL_COUNT","CLOTHING_ACCESSORIES_COUNT"
+]
+df["엔터전체방문자수"] = df[cnt_cols].sum(axis=1)
+
 # ─────────────────────────────
-# 3. 파생변수 & FEEL_IDX
+# 3. FEEL_IDX 계산
 # ─────────────────────────────
 group_cols = merge_keys + ["DISTRICT_KOR_NAME"]
-numeric_cols = (
-    df.select_dtypes(include="number")
-      .columns
-      .difference(["PROVINCE_CODE", "CITY_CODE", "DISTRICT_CODE"])
-)
+numeric_cols = df.select_dtypes(include="number").columns.difference(["PROVINCE_CODE", "CITY_CODE", "DISTRICT_CODE"])
 features = [c for c in numeric_cols if c not in group_cols]
 
 X = df[features].dropna()
@@ -101,7 +116,6 @@ data = df.sample(frac=0.01, random_state=42)
 # ─────────────────────────────
 st.title("서울시 인스타 감성 지수 분석")
 
-# 상위 등장 행정동 10개 뽑기
 top_districts = (
     data["DISTRICT_KOR_NAME"].value_counts()
     .head(10)
@@ -111,16 +125,10 @@ top_districts = (
 
 with st.sidebar:
     st.markdown("## 🔎 필터")
-
-    default_districts = top_districts if len(top_districts) > 0 else data["DISTRICT_KOR_NAME"].dropna().unique().tolist()
-    default_ages = data["AGE_GROUP"].dropna().unique().tolist()
-    default_gender = ["M", "F"]
-
     districts = st.multiselect("행정동 (상위 10)", options=top_districts, default=top_districts)
-    age_groups = st.multiselect("연령대", options=sorted(data["AGE_GROUP"].unique()), default=default_ages)
-    gender = st.multiselect("성별", ["M", "F"], default=default_gender)
+    age_groups = st.multiselect("연령대", sorted(data["AGE_GROUP"].dropna().unique()), default=sorted(data["AGE_GROUP"].dropna().unique()))
+    gender = st.multiselect("성별", ["M", "F"], default=["M", "F"])
 
-# 필터링
 districts_mask = data["DISTRICT_KOR_NAME"].isin(districts) if districts else pd.Series([True] * len(data), index=data.index)
 age_groups_mask = data["AGE_GROUP"].isin(age_groups) if age_groups else pd.Series([True] * len(data), index=data.index)
 gender_mask = data["GENDER"].isin(gender) if gender else pd.Series([True] * len(data), index=data.index)
@@ -129,12 +137,12 @@ mask = districts_mask & age_groups_mask & gender_mask
 view = data.loc[mask]
 
 # ─────────────────────────────
-# 5. 요약 지표
+# 5. 지표 출력
 # ─────────────────────────────
 st.subheader("요약 지표")
 c1, c2, c3 = st.columns(3)
 
-if not view.empty and all(col in view.columns for col in ["FEEL_IDX", "소비활력지수", "유입지수"]):
+if not view.empty:
     c1.metric("평균 FEEL_IDX", f"{view['FEEL_IDX'].mean():.2f}")
     c2.metric("평균 소비활력지수", f"{view['소비활력지수'].mean():.2f}")
     c3.metric("평균 유입지수", f"{view['유입지수'].mean():.2f}")
@@ -144,7 +152,7 @@ else:
     c3.metric("평균 유입지수", "-")
 
 # ─────────────────────────────
-# 6. 탭 형태 분석 화면
+# 6. 분석 탭
 # ─────────────────────────────
 tab1, tab2, tab3 = st.tabs(["지수 상위 지역", "성별·연령 분석", "산점도"])
 
@@ -185,15 +193,15 @@ with tab3:
     if not view.empty:
         x_axis = st.selectbox("X축 변수", ["엔터전체매출", "소비활력지수", "유입지수", "엔터전체방문자수"])
         y_axis = st.selectbox("Y축 변수", ["FEEL_IDX", "엔터매출비율"])
-        required_cols = [x_axis, y_axis, "FEEL_IDX"]
-        if all(col in view.columns for col in required_cols):
+
+        if all(col in view.columns for col in [x_axis, y_axis, "FEEL_IDX"]):
             fig, ax = plt.subplots(figsize=(6, 4))
-            sns.scatterplot(
-                data=view, x=x_axis, y=y_axis,
-                hue="FEEL_IDX", palette="viridis", alpha=0.6, ax=ax
-            )
+            sns.scatterplot(data=view, x=x_axis, y=y_axis, hue="FEEL_IDX", palette="viridis", ax=ax)
             st.pyplot(fig)
         else:
             st.warning("선택한 컬럼이 데이터에 없습니다.")
     else:
         st.info("선택된 데이터가 없습니다.")
+
+st.divider()
+st.caption("© 2025 데이터 출처: 리포지토리 data 폴더")
