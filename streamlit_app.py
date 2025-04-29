@@ -11,8 +11,14 @@ from sklearn.decomposition import PCA
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
             
-# 데이터 로드
-DATA_DIR = Path(__file__).parent / "data"
+import os
+import matplotlib.font_manager as fm
+import matplotlib.pyplot as plt
+
+font_path = os.path.join(os.path.dirname(__file__), "fonts", "NanumGothic.TTF")
+if os.path.exists(font_path):
+    plt.rcParams['font.family'] = fm.FontProperties(fname=font_path).get_name()
+    plt.rcParams['axes.unicode_minus'] = False
             
 # 데이터 로드
 DATA_DIR = Path(__file__).parent / "data"
