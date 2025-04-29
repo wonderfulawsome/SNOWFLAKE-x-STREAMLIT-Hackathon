@@ -13,14 +13,14 @@ from sklearn.decomposition import PCA
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
-# 웹용 한글 폰트 (fallback 포함)
+# 한글 폰트 설정
 st.markdown("""
     <style>
     html, body, [class*="css"]  {
         font-family: 'Malgun Gothic', 'Noto Sans KR', sans-serif;
     }
     </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # ─────────────────────────────
 # 1. 데이터 로드
@@ -34,21 +34,17 @@ def load_data():
     scco = pd.read_csv(DATA_DIR / "scco.csv")
     return fp, card, scco
 
-try:
-    fp_df, card_df, scco_df = load_data()
-except FileNotFoundError as e:
-    st.error(f"데이터 파일을 찾을 수 없습니다: {e}")
-    st.stop()
+fp_df, card_df, scco_df = load_data()
 
 # ─────────────────────────────
-# 2. 병합 & 파생
+# 2. 병합 및 전처리
 # ─────────────────────────────
 merge_keys = [
     "PROVINCE_CODE", "CITY_CODE", "DISTRICT_CODE",
     "STANDARD_YEAR_MONTH", "WEEKDAY_WEEKEND",
     "GENDER", "AGE_GROUP", "TIME_SLOT"
 ]
-df = pd.merge(fp_df, card_df, on=merge_keys, how="inner", validate="m:m")
+df = pd.merge(fp_df, card_df, on=merge_keys, how="inner")
 
 if "DISTRICT_KOR_NAME" in scco_df.columns:
     name_map = scco_df.set_index("DISTRICT_CODE")["DISTRICT_KOR_NAME"].to_dict()
@@ -56,44 +52,34 @@ if "DISTRICT_KOR_NAME" in scco_df.columns:
 else:
     df["DISTRICT_KOR_NAME"] = df["DISTRICT_CODE"].astype(str)
 
-# 파생 변수 생성
-df["전체인구"] = (
-    df["RESIDENTIAL_POPULATION"]
-    + df["WORKING_POPULATION"]
-    + df["VISITING_POPULATION"]
-)
-df["엔터전체매출"] = (
-    df["FOOD_SALES"] + df["COFFEE_SALES"] + df["BEAUTY_SALES"]
-    + df["ENTERTAINMENT_SALES"] + df["SPORTS_CULTURE_LEISURE_SALES"]
-    + df["TRAVEL_SALES"] + df["CLOTHING_ACCESSORIES_SALES"]
-)
+# 필요한 파생변수 생성
+df["전체인구"] = df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"] + df["VISITING_POPULATION"]
+df["엔터전체매출"] = df.get("FOOD_SALES", 0) + df.get("COFFEE_SALES", 0) + df.get("BEAUTY_SALES", 0) + \
+                    df.get("ENTERTAINMENT_SALES", 0) + df.get("SPORTS_CULTURE_LEISURE_SALES", 0) + \
+                    df.get("TRAVEL_SALES", 0) + df.get("CLOTHING_ACCESSORIES_SALES", 0)
 df["소비활력지수"] = df["엔터전체매출"] / df["전체인구"].replace(0, np.nan)
-df["유입지수"] = df["VISITING_POPULATION"] / (
-    df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"]
-).replace(0, np.nan)
+df["유입지수"] = df["VISITING_POPULATION"] / (df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"]).replace(0, np.nan)
 df["엔터매출비율"] = df["엔터전체매출"] / df["TOTAL_SALES"].replace(0, np.nan)
 
-cnt_cols = [
-    "FOOD_COUNT","COFFEE_COUNT","BEAUTY_COUNT","ENTERTAINMENT_COUNT",
-    "SPORTS_CULTURE_LEISURE_COUNT","TRAVEL_COUNT","CLOTHING_ACCESSORIES_COUNT"
+count_cols = [
+    "FOOD_COUNT", "COFFEE_COUNT", "BEAUTY_COUNT", "ENTERTAINMENT_COUNT",
+    "SPORTS_CULTURE_LEISURE_COUNT", "TRAVEL_COUNT", "CLOTHING_ACCESSORIES_COUNT"
 ]
-df["엔터전체방문자수"] = df[cnt_cols].sum(axis=1)
+df["엔터전체방문자수"] = df[count_cols].sum(axis=1)
 
 # ─────────────────────────────
-# 3. FEEL_IDX 계산
+# 3. FEEL_IDX 생성
 # ─────────────────────────────
-group_cols = merge_keys + ["DISTRICT_KOR_NAME"]
-numeric_cols = df.select_dtypes(include="number").columns.difference(["PROVINCE_CODE", "CITY_CODE", "DISTRICT_CODE"])
-features = [c for c in numeric_cols if c not in group_cols]
-
-X = df[features].dropna()
+X = df.drop(columns=merge_keys + ["DISTRICT_KOR_NAME"]).select_dtypes(include="number").dropna()
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 pca = PCA(n_components=1)
 pc1 = pca.fit_transform(X_scaled).ravel()
 pc1_norm = (pc1 - pc1.min()) / (pc1.max() - pc1.min() + 1e-9)
+
 df.loc[X.index, "FEEL_IDX"] = pc1_norm
 
+# 샘플링
 data = df.sample(frac=0.01, random_state=42)
 
 # ─────────────────────────────
@@ -101,28 +87,22 @@ data = df.sample(frac=0.01, random_state=42)
 # ─────────────────────────────
 st.title("서울시 인스타 감성 지수 분석")
 
-top_districts = (
-    data["DISTRICT_KOR_NAME"].value_counts()
-    .head(10)
-    .index
-    .tolist()
-)
+top_districts = data["DISTRICT_KOR_NAME"].value_counts().head(10).index.tolist()
 
 with st.sidebar:
     st.markdown("## 🔎 필터")
-    districts = st.multiselect("행정동 (상위 10)", options=top_districts, default=top_districts)
+    districts = st.multiselect("행정동 (상위 10개)", options=top_districts, default=top_districts)
     age_groups = st.multiselect("연령대", sorted(data["AGE_GROUP"].dropna().unique()), default=sorted(data["AGE_GROUP"].dropna().unique()))
     gender = st.multiselect("성별", ["M", "F"], default=["M", "F"])
 
-districts_mask = data["DISTRICT_KOR_NAME"].isin(districts) if districts else pd.Series([True] * len(data), index=data.index)
-age_groups_mask = data["AGE_GROUP"].isin(age_groups) if age_groups else pd.Series([True] * len(data), index=data.index)
-gender_mask = data["GENDER"].isin(gender) if gender else pd.Series([True] * len(data), index=data.index)
-
+districts_mask = data["DISTRICT_KOR_NAME"].isin(districts)
+age_groups_mask = data["AGE_GROUP"].isin(age_groups)
+gender_mask = data["GENDER"].isin(gender)
 mask = districts_mask & age_groups_mask & gender_mask
 view = data.loc[mask]
 
 # ─────────────────────────────
-# 5. 지표 출력
+# 5. 요약 지표
 # ─────────────────────────────
 st.subheader("요약 지표")
 c1, c2, c3 = st.columns(3)
@@ -144,16 +124,9 @@ tab1, tab2, tab3 = st.tabs(["지수 상위 지역", "성별·연령 분석", "�
 with tab1:
     st.subheader("지수 상위 지역 Top 20")
     if not view.empty:
-        top = (
-            view.groupby("DISTRICT_KOR_NAME")["FEEL_IDX"]
-            .mean()
-            .sort_values(ascending=False)
-            .head(20)
-        )
+        top = view.groupby("DISTRICT_KOR_NAME")["FEEL_IDX"].mean().sort_values(ascending=False).head(20)
         fig, ax = plt.subplots(figsize=(10, 5))
         sns.barplot(x=top.values, y=top.index, palette="rocket", ax=ax)
-        ax.set_xlabel("평균 FEEL_IDX")
-        ax.set_ylabel("행정동")
         st.pyplot(fig)
     else:
         st.info("선택된 데이터가 없습니다.")
@@ -161,14 +134,9 @@ with tab1:
 with tab2:
     st.subheader("성별 · 연령대별 FEEL_IDX")
     if not view.empty:
-        grp = (
-            view.groupby(["AGE_GROUP", "GENDER"])["FEEL_IDX"]
-            .mean()
-            .reset_index()
-        )
+        grp = view.groupby(["AGE_GROUP", "GENDER"])["FEEL_IDX"].mean().reset_index()
         fig, ax = plt.subplots(figsize=(8, 5))
-        sns.barplot(data=grp, x="AGE_GROUP", y="FEEL_IDX", hue="GENDER",
-                    palette={"M": "skyblue", "F": "lightpink"}, ax=ax)
+        sns.barplot(data=grp, x="AGE_GROUP", y="FEEL_IDX", hue="GENDER", palette={"M": "skyblue", "F": "lightpink"}, ax=ax)
         st.pyplot(fig)
     else:
         st.info("선택된 데이터가 없습니다.")
@@ -178,7 +146,6 @@ with tab3:
     if not view.empty:
         x_axis = st.selectbox("X축 변수", ["엔터전체매출", "소비활력지수", "유입지수", "엔터전체방문자수"])
         y_axis = st.selectbox("Y축 변수", ["FEEL_IDX", "엔터매출비율"])
-
         if all(col in view.columns for col in [x_axis, y_axis, "FEEL_IDX"]):
             fig, ax = plt.subplots(figsize=(6, 4))
             sns.scatterplot(data=view, x=x_axis, y=y_axis, hue="FEEL_IDX", palette="viridis", ax=ax)
