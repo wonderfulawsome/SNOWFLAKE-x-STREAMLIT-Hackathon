@@ -22,21 +22,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# ── 한글 폰트 (환경·배포 무관 안전)
-def set_korean_font():
-    local_font = Path(__file__).parent / "assets" / "NanumGothic.ttf"
-    if local_font.exists():
-        plt.rc("font", family=fm.FontProperties(fname=str(local_font)).get_name())
-        return
-    for cand in ["NanumGothic", "Noto Sans KR", "AppleGothic"]:
-        if any(cand in fp for fp in fm.findSystemFonts()):
-            plt.rc("font", family=cand)
-            return
-    plt.rc("font", family="DejaVu Sans")          # 마지막 fallback
-
-set_korean_font()
-plt.rcParams["axes.unicode_minus"] = False
-
 # ─────────────────────────────
 # 1. 데이터 로드
 # ─────────────────────────────
