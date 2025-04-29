@@ -108,7 +108,7 @@ else:
 tab1, tab2, tab3 = st.tabs(["지수 상위 지역", "성별·연령 분석", "산점도"])
 
 with tab1:
-    st.subheader("지수 상위 지역 Top 20")
+    st.subheader("지수 상위 지역 Top 10")
     if not view.empty:
         top = view.groupby("DISTRICT_KOR_NAME")["FEEL_IDX"].mean().sort_values(ascending=False).head(20)
         fig, ax = plt.subplots(figsize=(10, 5))
