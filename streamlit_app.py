@@ -1,201 +1,190 @@
-import streamlit as st
-import snowflake.connector
-import pandas as pd
+import os
+import json
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import geopandas as gpd
+from shapely.geometry import shape
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
+import streamlit as st
+import snowflake.connector
+import matplotlib.font_manager as fm
 
-# 기본 세팅
+# ────────────────── 기본 설정 ──────────────────
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
-# ──── NEW: Matplotlib ‧ Streamlit 한글 폰트 설정 ────
-import matplotlib
-matplotlib.rcParams["font.family"] = "Malgun Gothic"   # 윈도 기본 한글 폰트
-matplotlib.rcParams["axes.unicode_minus"] = False      # - 기호 깨짐 방지
-import streamlit as st
+# 한글 폰트 설정 (Windows 기준)
+font_path = "C:/Windows/Fonts/malgun.ttf"
+if os.path.exists(font_path):
+    font_name = fm.FontProperties(fname=font_path).get_name()
+    plt.rc('font', family=font_name)
+    plt.rcParams['axes.unicode_minus'] = False
 
-st.markdown(
-    """
-    <style>
-    /* Streamlit 기본 글꼴을 한글 지원 폰트로 변경 */
-    * { font-family: "Malgun Gothic", sans-serif !important; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# ────────────────── Snowflake 연결 ──────────────────
 
-# Snowflake 연결
 def get_conn():
     return snowflake.connector.connect(
         user=st.secrets["snowflake"]["user"],
         password=st.secrets["snowflake"]["password"],
         account=st.secrets["snowflake"]["account"],
-        warehouse="COMPUTE_WH",
+        warehouse=st.secrets["snowflake"]["warehouse"],
         ocsp_fail_open=True,
-        insecure_mode=True
+        insecure_mode=True,
     )
 
-@st.cache_data(show_spinner=False)
-def load_query(q: str) -> pd.DataFrame:
+@st.cache_data(show_spinner=True)
+def load_df(query: str) -> pd.DataFrame:
     conn = get_conn()
-    cur  = conn.cursor()
-    cur.execute(q)
+    cur = conn.cursor()
+    cur.execute(query)
     df = pd.DataFrame(cur.fetchall(), columns=[c[0] for c in cur.description])
     cur.close(); conn.close()
     return df
 
-# 쿼리
-Q_FP   = """SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.FLOATING_POPULATION_INFO"""
-Q_CARD = """SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.CARD_SALES_INFO"""
-Q_ASSET= """SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.ASSET_INCOME_INFO"""
-Q_SCCO = """SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.M_SCCO_MST"""
+# ────────────────── 쿼리 문자열 ──────────────────
+Q = {
+    "fp":    "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.FLOATING_POPULATION_INFO",
+    "card":  "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.CARD_SALES_INFO",
+    "asset": "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.ASSET_INCOME_INFO",
+    "scco":  "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.M_SCCO_MST",
+}
 
-@st.cache_data(show_spinner=True)
-def load_all():
-    return (load_query(Q_FP),
-            load_query(Q_CARD),
-            load_query(Q_ASSET),
-            load_query(Q_SCCO))
+with st.spinner("데이터 로딩 중..."):
+    fp_df    = load_df(Q["fp"])
+    card_df  = load_df(Q["card"])
+    asset_df = load_df(Q["asset"])
+    scco_df  = load_df(Q["scco"])
 
-# 전처리
-def preprocess() -> pd.DataFrame:
-    fp, card, asset, scco = load_all()
+# ────────────────── 데이터 전처리 ──────────────────
 
-    fp_card = pd.merge(
-        fp, card,
-        on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER",
-            "TIME_SLOT","WEEKDAY_WEEKEND"],
-        how="inner",
-        validate="m:m"
+def preprocess():
+    # 1) 유동 + 카드 + 자산
+    fp_card_asset = (
+        fp_df
+        .merge(card_df,  on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER","TIME_SLOT","WEEKDAY_WEEKEND"], how="inner")
+        .merge(asset_df, on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER"],                   how="inner")
     )
+    # 2) 행정동 코드 매핑
+    df = fp_card_asset.merge(scco_df, on="DISTRICT_CODE", how="inner")
 
-    fp_card_asset = pd.merge(
-        fp_card, asset,
-        on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER"],
-        how="inner",
-        validate="m:m"
-    )
+    # 3) 중복 컬럼 정리
+    dup_cols = [c for c in df.columns if c.endswith("_y")]
+    df = df.drop(columns=dup_cols)
+    df = df.rename(columns={c: c.replace("_x", "") for c in df.columns})
 
-    dup_cols = [c for c in fp_card_asset.columns if c.endswith(("_x", "_y"))]
-    fp_card_asset = fp_card_asset.drop(columns=dup_cols)
+    # ── 파생 변수 ──
+    df["전체인구"] = df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"] + df["VISITING_POPULATION"]
 
-    scco_map = (
-        scco[["DISTRICT_CODE", "DISTRICT_KOR_NAME"]]
-        .drop_duplicates("DISTRICT_CODE")
-        .set_index("DISTRICT_CODE")["DISTRICT_KOR_NAME"]
-        .to_dict()
-    )
-    fp_card_asset["DISTRICT_KOR_NAME"] = fp_card_asset["DISTRICT_CODE"].map(scco_map)
-
-    data = fp_card_asset
-
-    # 파생 변수
-    data["전체인구"] = (
-        data["RESIDENTIAL_POPULATION"]
-        + data["WORKING_POPULATION"]
-        + data["VISITING_POPULATION"]
-    )
-
-    data["엔터전체매출"] = (
-        data["FOOD_SALES"] + data["COFFEE_SALES"] + data["BEAUTY_SALES"]
-        + data["ENTERTAINMENT_SALES"] + data["SPORTS_CULTURE_LEISURE_SALES"]
-        + data["TRAVEL_SALES"] + data["CLOTHING_ACCESSORIES_SALES"]
-    )
-
-    data["소비활력지수"] = data["엔터전체매출"] / data["전체인구"].replace(0, np.nan)
-    data["유입지수"]   = data["VISITING_POPULATION"] / (
-        data["RESIDENTIAL_POPULATION"] + data["WORKING_POPULATION"]
-    ).replace(0, np.nan)
-    data["엔터매출비율"] = data["엔터전체매출"] / data["TOTAL_SALES"].replace(0, np.nan)
-
-    cnt_cols = [
-        "FOOD_COUNT","COFFEE_COUNT","BEAUTY_COUNT","ENTERTAINMENT_COUNT",
-        "SPORTS_CULTURE_LEISURE_COUNT","TRAVEL_COUNT","CLOTHING_ACCESSORIES_COUNT"
+    sales_cols = [
+        "FOOD_SALES", "COFFEE_SALES", "BEAUTY_SALES", "ENTERTAINMENT_SALES",
+        "SPORTS_CULTURE_LEISURE_SALES", "TRAVEL_SALES", "CLOTHING_ACCESSORIES_SALES",
     ]
-    data["엔터전체방문자수"] = data[cnt_cols].sum(axis=1)
-    data["엔터방문자비율"] = data["엔터전체방문자수"] / data["TOTAL_COUNT"].replace(0, np.nan)
-    data["엔터활동밀도"]   = data["엔터전체매출"] / data["전체인구"].replace(0, np.nan)
-    data["엔터매출밀도"]   = data["엔터전체매출"] / data["엔터전체방문자수"].replace(0, np.nan)
+    count_cols = [
+        "FOOD_COUNT", "COFFEE_COUNT", "BEAUTY_COUNT", "ENTERTAINMENT_COUNT",
+        "SPORTS_CULTURE_LEISURE_COUNT", "TRAVEL_COUNT", "CLOTHING_ACCESSORIES_COUNT",
+    ]
 
+    df["엔터전체매출"] = df[sales_cols].sum(axis=1)
+    df["엔터전체방문자수"] = df[count_cols].sum(axis=1)
+
+    df["엔터매출비율"]   = df["엔터전체매출"] / df["TOTAL_SALES"].replace(0, np.nan)
+    df["엔터방문자비율"] = df["엔터전체방문자수"] / df["TOTAL_COUNT"].replace(0, np.nan)
+    df["엔터활동밀도"]   = df["엔터전체매출"] / df["전체인구"].replace(0, np.nan)
+    df["엔터매출밀도"]   = df["엔터전체매출"] / df["엔터전체방문자수"].replace(0, np.nan)
+    df["유입지수"]       = df["VISITING_POPULATION"] / (df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"]).replace(0, np.nan)
+
+    # ── FEEL_IDX (PCA) ──
     emo_vars = [
-        "엔터전체매출","소비활력지수","유입지수","엔터매출비율",
-        "엔터전체방문자수","엔터방문자비율","엔터활동밀도","엔터매출밀도"
+        "엔터전체매출", "유입지수", "엔터매출비율", "엔터전체방문자수",
+        "엔터방문자비율", "엔터활동밀도", "엔터매출밀도",
     ]
-    X = data[emo_vars].dropna()
+    X = df[emo_vars].dropna()
     pc1 = PCA(n_components=1).fit_transform(StandardScaler().fit_transform(X))
-    pc1_n = (pc1 - pc1.min()) / (pc1.max() - pc1.min() + 1e-9)
-    data.loc[X.index, "FEEL_IDX"] = pc1_n
+    df.loc[X.index, "FEEL_IDX"] = (pc1 - pc1.min()) / (pc1.max() - pc1.min() + 1e-9)
 
-    data = data.sample(frac=0.01, random_state=42)
-
-    return data
+    return df
 
 @st.cache_data(show_spinner=True)
 def get_data():
     return preprocess()
 
-# UI
-st.title("서울시 인스타 감성 지수 분석")
-data = get_data()
+fp_card_scco_asset = get_data()
 
-with st.sidebar:
-    districts = st.multiselect("행정동", sorted(data["DISTRICT_KOR_NAME"].dropna().unique()), [])
-    age_groups = st.multiselect("연령대", sorted(data["AGE_GROUP"].unique()), [])
-    gender = st.multiselect("성별", ["M", "F"], [])
+# ────────────────── 사이드바 ──────────────────
+st.sidebar.header("메뉴")
+page = st.sidebar.selectbox(
+    "페이지", (
+        "방문자수 TOP", "방문자 1인당 매출", "유입지수 TOP", "성별·연령 소비", "상관관계"))
 
-mask = (
-    (data["DISTRICT_KOR_NAME"].isin(districts) if districts else True) &
-    (data["AGE_GROUP"].isin(age_groups) if age_groups else True) &
-    (data["GENDER"].isin(gender) if gender else True)
-)
-view = data.loc[mask]
+palette = 'rocket'
 
-st.subheader("요약 지표")
-c1, c2, c3 = st.columns(3)
-c1.metric("평균 FEEL_IDX", f"{view['FEEL_IDX'].mean():.2f}")
-c2.metric("평균 소비활력지수", f"{view['소비활력지수'].mean():.2f}")
-c3.metric("평균 유입지수", f"{view['유입지수'].mean():.2f}")
-
-tab1, tab2, tab3 = st.tabs(["지수 상위 지역", "성별·연령 분석", "산점도"])
-
-with tab1:
-    top = (
-        view.groupby("DISTRICT_KOR_NAME")["소비활력지수"]
-        .mean()
-        .sort_values(ascending=False)
-        .head(20)
-    )
-    fig, ax = plt.subplots(figsize=(10, 5))
-    sns.barplot(x=top.index, y=top.values, palette="rocket", ax=ax)
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right")
-    ax.set_xlabel("행정동"); ax.set_ylabel("소비활력지수")
+def bar_chart(df, x, y, title):
+    fig, ax = plt.subplots(figsize=(14,7))
+    sns.barplot(data=df, x=x, y=y, palette=palette, ax=ax)
+    ax.set_title(title)
+    ax.set_xlabel(x)
+    ax.set_ylabel(y)
+    plt.xticks(rotation=45, ha='right')
     st.pyplot(fig)
 
-with tab2:
-    agg = (
-        view.groupby(["AGE_GROUP","GENDER"])["TOTAL_SALES"]
-        .mean()
-        .reset_index()
-    )
-    fig, ax = plt.subplots(figsize=(8, 4))
-    sns.barplot(
-        data=agg, x="AGE_GROUP", y="TOTAL_SALES", hue="GENDER",
-        palette={"M": "#3498db", "F": "#e75480"}, ax=ax
-    )
+# ────────────────── 페이지별 시각화 ──────────────────
+if page == "방문자수 TOP":
+    agg = fp_card_scco_asset.groupby('DISTRICT_KOR_NAME')['엔터전체방문자수'].sum().nlargest(30).reset_index()
+    bar_chart(agg, 'DISTRICT_KOR_NAME', '엔터전체방문자수', '방문자수 상위 30개 행정동')
+
+elif page == "방문자 1인당 매출":
+    agg = fp_card_scco_asset.groupby('DISTRICT_KOR_NAME').agg({'엔터전체매출':'sum','엔터전체방문자수':'sum'})
+    agg['방문자1인당엔터매출'] = agg['엔터전체매출'] / agg['엔터전체방문자수'].replace(0, np.nan)
+    agg = agg.nlargest(30, '방문자1인당엔터매출').reset_index()
+    bar_chart(agg, 'DISTRICT_KOR_NAME', '방문자1인당엔터매출', '방문자 1인당 엔터매출 상위 30개')
+
+elif page == "유입지수 TOP":
+    agg = fp_card_scco_asset.groupby('DISTRICT_KOR_NAME')['유입지수'].mean().nlargest(30).reset_index()
+    bar_chart(agg, 'DISTRICT_KOR_NAME', '유입지수', '유입지수 상위 30개 행정동')
+
+elif page == "성별·연령 소비":
+    gender_palette = {'M': '#3498db', 'F': '#e75480'}
+    tab = st.radio("보기", ("1인당 매출", "엔터 방문횟수", "방문 1회당 매출"))
+    if tab == "1인당 매출":
+        df = fp_card_scco_asset.groupby(['AGE_GROUP','GENDER'])['TOTAL_SALES'].mean().reset_index()
+        fig, ax = plt.subplots(figsize=(10,6))
+        sns.barplot(data=df, x='AGE_GROUP', y='TOTAL_SALES', hue='GENDER', palette=gender_palette, ax=ax)
+        ax.set_title('성별·연령대별 1인당 매출')
+        st.pyplot(fig)
+    elif tab == "엔터 방문횟수":
+        df = fp_card_scco_asset.groupby(['AGE_GROUP','GENDER'])['엔터전체방문자수'].sum().reset_index()
+        fig, ax = plt.subplots(figsize=(10,6))
+        sns.barplot(data=df, x='AGE_GROUP', y='엔터전체방문자수', hue='GENDER', palette=gender_palette, ax=ax)
+        ax.set_title('성별·연령대별 엔터 방문횟수')
+        st.pyplot(fig)
+    else:
+        df = fp_card_scco_asset.groupby(['AGE_GROUP','GENDER'])['엔터매출밀도'].mean().reset_index()
+        fig, ax = plt.subplots(figsize=(10,6))
+        sns.barplot(data=df, x='AGE_GROUP', y='엔터매출밀도', hue='GENDER', palette=gender_palette, ax=ax)
+        ax.set_title('성별·연령대별 방문 1회당 매출')
+        st.pyplot(fig)
+
+elif page == "상관관계":
+    cols = [
+        '엔터전체매출', '유입지수', '엔터매출비율', '엔터전체방문자수',
+        '엔터방문자비율', '엔터활동밀도', '엔터매출밀도', 'FEEL_IDX'
+    ]
+    corr_df = fp_card_scco_asset[cols].dropna()
+    corr = corr_df.corr()
+
+    fig, ax = plt.subplots(figsize=(8,7))
+    sns.heatmap(corr, annot=True, cmap='coolwarm', vmin=-1, vmax=1, ax=ax)
+    ax.set_title('지표 간 상관관계')
     st.pyplot(fig)
 
-with tab3:
-    x_axis = st.selectbox("X축 변수", ["엔터전체매출","소비활력지수","유입지수","엔터전체방문자수"])
-    y_axis = st.selectbox("Y축 변수", ["FEEL_IDX","엔터활동밀도","엔터매출비율"])
-    fig, ax = plt.subplots(figsize=(6, 4))
-    sns.scatterplot(
-        data=view, x=x_axis, y=y_axis,
-        hue="FEEL_IDX", palette="viridis", alpha=0.6, ax=ax
-    )
-    st.pyplot(fig)
+    bar = corr['FEEL_IDX'].drop('FEEL_IDX').sort_values(ascending=False)
+    fig2, ax2 = plt.subplots(figsize=(7,5))
+    sns.barplot(y=bar.index, x=bar.values, palette=palette, ax=ax2)
+    ax2.set_xlim(-1,1)
+    ax2.set_title('FEEL_IDX와 지표 상관')
+    st.pyplot(fig2)
 
-st.divider()
-st.caption("데이터 출처 · Snowflake Marketplace")
+st.success("완료!")
