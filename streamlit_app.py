@@ -11,29 +11,26 @@ from sklearn.decomposition import PCA
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
-import os
-import urllib.request
 import streamlit as st
 import matplotlib
-import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
+import matplotlib.pyplot as plt
 
-# ── 1. Noto Sans KR 폰트 다운로드 및 등록 ──
-font_url = "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/Korean/NotoSansKR-Regular.otf"
-font_path = "/tmp/NotoSansKR-Regular.otf"
-if not os.path.isfile(font_path):
-    urllib.request.urlretrieve(font_url, font_path)
-fm.fontManager.addfont(font_path)
-font_prop = fm.FontProperties(fname=font_path)
-
-# ── 2. matplotlib 한글 폰트 설정 ──
-matplotlib.rcParams["font.family"] = font_prop.get_name()
+# ── matplotlib 한글 폰트 자동 설정 (리눅스 환경) ──
+system_fonts = fm.findSystemFonts()
+for candidate in ["NanumGothic.ttf", "NotoSansKR-Regular.otf", "AppleGothic.ttf"]:
+    path = next((f for f in system_fonts if candidate in f), None)
+    if path:
+        matplotlib.rcParams["font.family"] = fm.FontProperties(fname=path).get_name()
+        break
+else:
+    matplotlib.rcParams["font.family"] = "DejaVu Sans"  # fallback
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-# ── 3. Streamlit UI 한글 폰트 설정 ──
+# ── Streamlit 전체 UI 한글 폰트 설정 ──
 st.markdown("""
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR&display=swap" rel="stylesheet">
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR&display=swap');
 html, body, [class*="css"] {
     font-family: 'Noto Sans KR', sans-serif !important;
 }
