@@ -1,165 +1,147 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import seaborn as sns
 import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
-import plotly.graph_objects as go
+import seaborn as sns
 from pathlib import Path
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from xgboost import XGBRegressor
+from sklearn.decomposition import PCA
 
-# 설정 --------------------------------------------------
-st.set_page_config(page_title="Henry Hub Gas Dashboard", layout="wide")
+# ─────────────────────────────
+# 0. 기본 세팅
+# ─────────────────────────────
+st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
-# 폰트 --------------------------------------------------
-def set_korean_font():
-    local = Path(__file__).parent / "assets" / "NanumGothic.ttf"
-    if local.exists():
-        plt.rc("font", family=fm.FontProperties(fname=str(local)).get_name())
-        return
-    for cand in ["NanumGothic", "Noto Sans KR", "AppleGothic"]:
-        if any(cand in fp for fp in fm.findSystemFonts()):
-            plt.rc("font", family=cand)
-            return
-    plt.rc("font", family="DejaVu Sans")
+# ──── 한글 폰트 설정 ────
+import matplotlib
+matplotlib.rcParams["font.family"] = "Malgun Gothic"
+matplotlib.rcParams["axes.unicode_minus"] = False
+st.markdown(
+    """
+    <style>
+      * { font-family: "Malgun Gothic", sans-serif !important; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-set_korean_font()
-plt.rcParams["axes.unicode_minus"] = False
-
-TARGET = "Natural_Gas_US_Henry_Hub_Gas"
+# ─────────────────────────────
+# 1. 데이터 로드
+# ─────────────────────────────
 DATA_DIR = Path(__file__).parent / "data"
 
-# 데이터 -------------------------------------------------
 @st.cache_data(show_spinner=False)
 def load_data():
-    train   = pd.read_csv(DATA_DIR / "department store .csv")
-    test    = pd.read_csv(DATA_DIR / "floating population.csv")
-    card    = pd.read_csv(DATA_DIR / "Shinhan card sales.csv")
-    scco    = pd.read_csv(DATA_DIR / "scco.csv")
-    return train, test, card, scco
+    fp    = pd.read_csv(DATA_DIR / "floating population.csv")
+    card  = pd.read_csv(DATA_DIR / "Shinhan card sales.csv")
+    asset = pd.read_csv(DATA_DIR / "asset income.csv")
+    scco  = pd.read_csv(DATA_DIR / "scco.csv")
+    return fp, card, asset, scco
 
 try:
-    train_df, test_df, card_df, scco_df = load_data()
+    fp_df, card_df, asset_df, scco_df = load_data()
 except FileNotFoundError as e:
     st.error(f"데이터 파일을 찾을 수 없습니다: {e}")
     st.stop()
 
-if TARGET not in train_df.columns:
-    st.error(f"‘{TARGET}’ 컬럼이 없습니다.\n컬럼 목록: {train_df.columns.tolist()}")
-    st.stop()
+# ─────────────────────────────
+# 2. 전처리 & 파생변수
+# ─────────────────────────────
+def preprocess(fp, card, asset, scco):
+    # merge fp + card
+    df = pd.merge(
+        fp, card,
+        on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER","TIME_SLOT","WEEKDAY_WEEKEND"],
+        how="inner", validate="m:m"
+    )
+    # merge + asset
+    df = pd.merge(
+        df, asset,
+        on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER"],
+        how="inner", validate="m:m"
+    )
+    # 중복 컬럼 제거
+    dup = [c for c in df.columns if c.endswith(("_x","_y"))]
+    df = df.drop(columns=dup)
+    # district name 매핑
+    scco_map = (scco[["DISTRICT_CODE","DISTRICT_KOR_NAME"]]
+                .drop_duplicates("DISTRICT_CODE")
+                .set_index("DISTRICT_CODE")["DISTRICT_KOR_NAME"]
+                .to_dict())
+    df["DISTRICT_KOR_NAME"] = df["DISTRICT_CODE"].map(scco_map)
+    # 파생 변수
+    df["전체인구"]     = df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"] + df["VISITING_POPULATION"]
+    df["엔터전체매출"] = (df["FOOD_SALES"] + df["COFFEE_SALES"] + df["BEAUTY_SALES"]
+                          + df["ENTERTAINMENT_SALES"] + df["SPORTS_CULTURE_LEISURE_SALES"]
+                          + df["TRAVEL_SALES"] + df["CLOTHING_ACCESSORIES_SALES"])
+    df["소비활력지수"] = df["엔터전체매출"] / df["전체인구"].replace(0, np.nan)
+    df["유입지수"]     = df["VISITING_POPULATION"] / (df["RESIDENTIAL_POPULATION"]+df["WORKING_POPULATION"]).replace(0, np.nan)
+    df["엔터매출비율"] = df["엔터전체매출"] / df["TOTAL_SALES"].replace(0, np.nan)
+    cnt_cols = ["FOOD_COUNT","COFFEE_COUNT","BEAUTY_COUNT","ENTERTAINMENT_COUNT",
+                "SPORTS_CULTURE_LEISURE_COUNT","TRAVEL_COUNT","CLOTHING_ACCESSORIES_COUNT"]
+    df["엔터전체방문자수"] = df[cnt_cols].sum(axis=1)
+    df["엔터매출밀도"]   = df["엔터전체매출"] / df["엔터전체방문자수"].replace(0, np.nan)
+    # PCA 기반 FEEL_IDX
+    emo = ["엔터전체매출","소비활력지수","유입지수","엔터매출비율","엔터전체방문자수","엔터매출밀도"]
+    X   = df[emo].dropna()
+    pca = PCA(n_components=1)
+    pc1 = pca.fit_transform(StandardScaler().fit_transform(X))
+    pc1n = (pc1 - pc1.min()) / (pc1.max() - pc1.min() + 1e-9)
+    df.loc[X.index, "FEEL_IDX"] = pc1n.ravel()
+    # 샘플링
+    return df.sample(frac=0.01, random_state=42)
 
-# 사이드바 ----------------------------------------------
-section = st.sidebar.selectbox("메뉴", ["상관관계", "피처 중요도", "시계열 비교", "산점도"])
+data = preprocess(fp_df, card_df, asset_df, scco_df)
 
-# 상관관계 ----------------------------------------------
-if section == "상관관계":
-    st.subheader("전체 변수 히트맵")
-    corr = train_df.drop(columns=["date"]).corr()
-    fig, ax = plt.subplots(figsize=(14, 10))
-    sns.heatmap(corr, cmap="coolwarm", center=0, square=True, cbar_kws={"shrink": .5}, ax=ax)
+# ─────────────────────────────
+# 3. UI: 필터
+# ─────────────────────────────
+st.title("서울시 인스타 감성 지수 대시보드")
+with st.sidebar:
+    sel_d = st.multiselect("행정동", sorted(data["DISTRICT_KOR_NAME"].dropna().unique()))
+    sel_a = st.multiselect("연령대", sorted(data["AGE_GROUP"].unique()))
+    sel_g = st.multiselect("성별", ["M","F"])
+
+mask = (
+    (data["DISTRICT_KOR_NAME"].isin(sel_d) if sel_d else True) &
+    (data["AGE_GROUP"].isin(sel_a) if sel_a else True) &
+    (data["GENDER"].isin(sel_g) if sel_g else True)
+)
+view = data[mask]
+
+# ─────────────────────────────
+# 4. 요약 지표
+# ─────────────────────────────
+st.subheader("요약 지표")
+c1, c2, c3 = st.columns(3)
+c1.metric("평균 FEEL_IDX",      f"{view['FEEL_IDX'].mean():.2f}")
+c2.metric("평균 소비활력지수",   f"{view['소비활력지수'].mean():.2f}")
+c3.metric("평균 유입지수",      f"{view['유입지수'].mean():.2f}")
+
+# ─────────────────────────────
+# 5. 탭별 시각화
+# ─────────────────────────────
+tab1, tab2, tab3 = st.tabs(["지수 상위 지역","성별·연령 분석","산점도"])
+
+with tab1:
+    top20 = view.groupby("DISTRICT_KOR_NAME")["소비활력지수"].mean().nlargest(20)
+    fig, ax = plt.subplots(figsize=(10,5))
+    sns.barplot(x=top20.index, y=top20.values, palette="rocket", ax=ax)
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right")
     st.pyplot(fig)
 
-    st.divider()
-    st.subheader("Henry Hub vs 변수")
-    target_corr = corr[TARGET].sort_values(ascending=False)
-    st.dataframe(target_corr.to_frame("corr"))
-
-    vars_kor = [
-        "원유 지수", "가스 굴착기 수", "세계경기 지수", "가스 지수", "가스 수입량",
-        "철강 YoY", "캐나다 가스 수입량", "PMI 중간재 물가", "기준금리", "제조업 경기예상"
-    ]
-    corrs = [0.8767, 0.8132, 0.7175, 0.7158, 0.7107,
-             0.6722, 0.6632, 0.6500, 0.6013, 0.5865]
-    df_bar = pd.DataFrame({"var": vars_kor, "corr": corrs}).sort_values("corr", ascending=False)
-    df_bar["color"] = np.where(df_bar.corr > 0, "steelblue", "crimson")
-    fig_bar = go.Figure(go.Bar(x=df_bar.var, y=df_bar.corr,
-                               marker_color=df_bar.color,
-                               text=df_bar.corr.round(3),
-                               textposition="outside"))
-    fig_bar.update_layout(height=500, margin=dict(t=40, b=120))
-    st.plotly_chart(fig_bar, use_container_width=True)
-
-# 피처 중요도 --------------------------------------------
-elif section == "피처 중요도":
-    st.subheader("XGBoost Feature Importance")
-    X = train_df.drop(columns=["date", TARGET])
-    y = train_df[TARGET]
-    X_tr, X_va, y_tr, y_va = train_test_split(X, y, test_size=0.2, random_state=42)
-    model = XGBRegressor(random_state=42)
-    model.fit(X_tr, y_tr)
-    imp = pd.Series(model.feature_importances_, index=X.columns).sort_values(ascending=False).head(20)
-    fig, ax = plt.subplots(figsize=(8, 10))
-    ax.barh(imp.index[::-1], imp.values[::-1], color="steelblue")
-    ax.set_xlabel("중요도")
+with tab2:
+    grp = view.groupby(["AGE_GROUP","GENDER"])["TOTAL_SALES"].mean().reset_index()
+    fig, ax = plt.subplots(figsize=(8,4))
+    sns.barplot(data=grp, x="AGE_GROUP", y="TOTAL_SALES", hue="GENDER", ax=ax)
     st.pyplot(fig)
 
-# 시계열 비교 --------------------------------------------
-elif section == "시계열 비교":
-    st.subheader("표준화 시계열 비교")
-    cols = [
-        "Natural_Gas_Rotary_Rig_Count_USA",
-        "Kilian_Global_Economy_Index_WORLD",
-        "Natural_Gas_Imports_USA",
-        "BCOMCL_INDX",
-        "Crude_Steel_Accumulated_YoY",
-        "PPI_Mining_Sector_USA",
-        "DXY_INDX",
-    ]
-    missing = [c for c in cols if c not in train_df.columns]
-    if missing:
-        st.warning(f"다음 컬럼 없음: {missing}")
-    else:
-        scale_cols = cols + [TARGET]
-        scaler = StandardScaler()
-        scaled = scaler.fit_transform(train_df[scale_cols])
-        s_df = pd.DataFrame(scaled, columns=scale_cols)
-        s_df["date"] = pd.to_datetime(train_df["date"])
-
-        n_cols = 2
-        n_rows = int(np.ceil(len(cols) / n_cols))
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 4 * n_rows))
-        axes = axes.flatten()
-
-        for i, col in enumerate(cols):
-            axes[i].plot(s_df.date, s_df[col], label=col, color="steelblue")
-            axes[i].plot(s_df.date, s_df[TARGET], label="Henry Hub", color="darkred")
-            axes[i].legend(fontsize=8)
-            axes[i].tick_params(axis="x", rotation=45, labelsize=7)
-
-        for j in range(len(cols), len(axes)):
-            fig.delaxes(axes[j])
-
-        st.pyplot(fig)
-
-# 산점도 --------------------------------------------------
-else:
-    st.subheader("변수별 산점도")
-    cols = [
-        "Natural_Gas_Rotary_Rig_Count_USA",
-        "Kilian_Global_Economy_Index_WORLD",
-        "BCOMCL_INDX",
-        "Crude_Steel_Accumulated_YoY",
-        "PPI_Mining_Sector_USA",
-        "DXY_INDX",
-    ]
-    valid_cols = [c for c in cols if c in train_df.columns]
-    n_cols = 2
-    n_rows = int(np.ceil(len(valid_cols) / n_cols))
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 5 * n_rows))
-    axes = axes.flatten()
-
-    for i, col in enumerate(valid_cols):
-        sns.regplot(data=train_df, x=col, y=TARGET,
-                    ax=axes[i], fit_reg=False, scatter_kws={"alpha": .6})
-        axes[i].set_xlabel(col)
-        axes[i].set_ylabel("Henry Hub")
-
-    for j in range(len(valid_cols), len(axes)):
-        fig.delaxes(axes[j])
-
+with tab3:
+    x = st.selectbox("X축 변수", ["엔터전체매출","소비활력지수","유입지수","엔터전체방문자수"])
+    y = st.selectbox("Y축 변수", ["FEEL_IDX","엔터매출비율","엔터매출밀도"])
+    fig, ax = plt.subplots(figsize=(6,4))
+    sns.scatterplot(data=view, x=x, y=y, hue="FEEL_IDX", palette="viridis", alpha=0.6, ax=ax)
     st.pyplot(fig)
 
 st.sidebar.caption("© 2025 Park Sungsoo")
