@@ -13,7 +13,6 @@ from sklearn.decomposition import PCA
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
-# 한글 폰트 설정
 import matplotlib
 matplotlib.rcParams["font.family"] = "Malgun Gothic"
 matplotlib.rcParams["axes.unicode_minus"] = False
@@ -33,7 +32,7 @@ DATA_DIR = Path(__file__).parent / "data"
 
 @st.cache_data(show_spinner=False)
 def load_data():
-    fp   = pd.read_csv(DATA_DIR / "floating population.csv")
+    fp = pd.read_csv(DATA_DIR / "floating population.csv")
     card = pd.read_csv(DATA_DIR / "Shinhan card sales.csv")
     scco = pd.read_csv(DATA_DIR / "scco.csv")
     return fp, card, scco
@@ -91,18 +90,20 @@ with st.sidebar:
     age_groups = st.multiselect("연령대", sorted(data["AGE_GROUP"].unique()), [])
     gender = st.multiselect("성별", ["M", "F"], [])
 
-districts_mask = data["DISTRICT_KOR_NAME"].isin(districts) if districts else pd.Series(True, index=data.index)
-age_groups_mask = data["AGE_GROUP"].isin(age_groups) if age_groups else pd.Series(True, index=data.index)
-gender_mask = data["GENDER"].isin(gender) if gender else pd.Series(True, index=data.index)
+districts_mask = data["DISTRICT_KOR_NAME"].isin(districts) if districts else pd.Series([True] * len(data), index=data.index)
+age_groups_mask = data["AGE_GROUP"].isin(age_groups) if age_groups else pd.Series([True] * len(data), index=data.index)
+gender_mask = data["GENDER"].isin(gender) if gender else pd.Series([True] * len(data), index=data.index)
 
 mask = districts_mask & age_groups_mask & gender_mask
 view = data.loc[mask]
 
-# 요약 지표
+# ─────────────────────────────
+# 5. 요약 지표
+# ─────────────────────────────
 st.subheader("요약 지표")
 c1, c2, c3 = st.columns(3)
 
-if not view.empty:
+if not view.empty and all(col in view.columns for col in ["FEEL_IDX", "소비활력지수", "유입지수"]):
     c1.metric("평균 FEEL_IDX", f"{view['FEEL_IDX'].mean():.2f}")
     c2.metric("평균 소비활력지수", f"{view['소비활력지수'].mean():.2f}")
     c3.metric("평균 유입지수", f"{view['유입지수'].mean():.2f}")
@@ -112,7 +113,7 @@ else:
     c3.metric("평균 유입지수", "-")
 
 # ─────────────────────────────
-# 5. 분석 화면
+# 6. 분석 선택
 # ─────────────────────────────
 selected_tab = st.selectbox(
     "분석 항목을 선택하세요",
@@ -146,7 +147,7 @@ elif selected_tab == "성별·연령 분석":
         )
         fig, ax = plt.subplots(figsize=(8, 5))
         sns.barplot(data=grp, x="AGE_GROUP", y="FEEL_IDX", hue="GENDER",
-                    palette={"M":"skyblue", "F":"lightpink"}, ax=ax)
+                    palette={"M": "skyblue", "F": "lightpink"}, ax=ax)
         st.pyplot(fig)
     else:
         st.info("선택된 데이터가 없습니다.")
@@ -154,8 +155,8 @@ elif selected_tab == "성별·연령 분석":
 else:  # 산점도
     st.subheader("산점도 분석")
     if not view.empty:
-        x_axis = st.selectbox("X축 변수", ["엔터전체매출","소비활력지수","유입지수","엔터전체방문자수"])
-        y_axis = st.selectbox("Y축 변수", ["FEEL_IDX","엔터매출비율"])
+        x_axis = st.selectbox("X축 변수", ["엔터전체매출", "소비활력지수", "유입지수", "엔터전체방문자수"])
+        y_axis = st.selectbox("Y축 변수", ["FEEL_IDX", "엔터매출비율"])
         fig, ax = plt.subplots(figsize=(6, 4))
         sns.scatterplot(
             data=view, x=x_axis, y=y_axis,
