@@ -1,11 +1,8 @@
 import os
-import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import geopandas as gpd
-from shapely.geometry import shape
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 import streamlit as st
@@ -62,15 +59,14 @@ with st.spinner("데이터 로딩 중..."):
 
 def preprocess():
     # 1) 유동 + 카드 + 자산
-    fp_card_asset = (
+    df = (
         fp_df
         .merge(card_df,  on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER","TIME_SLOT","WEEKDAY_WEEKEND"], how="inner")
-        .merge(asset_df, on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER"],                   how="inner")
+        .merge(asset_df, on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER"], how="inner")
+        .merge(scco_df,  on="DISTRICT_CODE", how="inner")
     )
-    # 2) 행정동 코드 매핑
-    df = fp_card_asset.merge(scco_df, on="DISTRICT_CODE", how="inner")
 
-    # 3) 중복 컬럼 정리
+    # 중복 컬럼 정리
     dup_cols = [c for c in df.columns if c.endswith("_y")]
     df = df.drop(columns=dup_cols)
     df = df.rename(columns={c: c.replace("_x", "") for c in df.columns})
@@ -115,9 +111,8 @@ fp_card_scco_asset = get_data()
 
 # ────────────────── 사이드바 ──────────────────
 st.sidebar.header("메뉴")
-page = st.sidebar.selectbox(
-    "페이지", (
-        "방문자수 TOP", "방문자 1인당 매출", "유입지수 TOP", "성별·연령 소비", "상관관계"))
+page = st.sidebar.selectbox("페이지", (
+    "방문자수 TOP", "방문자 1인당 매출", "유입지수 TOP", "성별·연령 소비", "상관관계"))
 
 palette = 'rocket'
 
@@ -147,44 +142,6 @@ elif page == "유입지수 TOP":
 
 elif page == "성별·연령 소비":
     gender_palette = {'M': '#3498db', 'F': '#e75480'}
-    tab = st.radio("보기", ("1인당 매출", "엔터 방문횟수", "방문 1회당 매출"))
-    if tab == "1인당 매출":
-        df = fp_card_scco_asset.groupby(['AGE_GROUP','GENDER'])['TOTAL_SALES'].mean().reset_index()
-        fig, ax = plt.subplots(figsize=(10,6))
-        sns.barplot(data=df, x='AGE_GROUP', y='TOTAL_SALES', hue='GENDER', palette=gender_palette, ax=ax)
-        ax.set_title('성별·연령대별 1인당 매출')
-        st.pyplot(fig)
-    elif tab == "엔터 방문횟수":
-        df = fp_card_scco_asset.groupby(['AGE_GROUP','GENDER'])['엔터전체방문자수'].sum().reset_index()
-        fig, ax = plt.subplots(figsize=(10,6))
-        sns.barplot(data=df, x='AGE_GROUP', y='엔터전체방문자수', hue='GENDER', palette=gender_palette, ax=ax)
-        ax.set_title('성별·연령대별 엔터 방문횟수')
-        st.pyplot(fig)
-    else:
-        df = fp_card_scco_asset.groupby(['AGE_GROUP','GENDER'])['엔터매출밀도'].mean().reset_index()
-        fig, ax = plt.subplots(figsize=(10,6))
-        sns.barplot(data=df, x='AGE_GROUP', y='엔터매출밀도', hue='GENDER', palette=gender_palette, ax=ax)
-        ax.set_title('성별·연령대별 방문 1회당 매출')
-        st.pyplot(fig)
-
-elif page == "상관관계":
-    cols = [
-        '엔터전체매출', '유입지수', '엔터매출비율', '엔터전체방문자수',
-        '엔터방문자비율', '엔터활동밀도', '엔터매출밀도', 'FEEL_IDX'
-    ]
-    corr_df = fp_card_scco_asset[cols].dropna()
-    corr = corr_df.corr()
-
-    fig, ax = plt.subplots(figsize=(8,7))
-    sns.heatmap(corr, annot=True, cmap='coolwarm', vmin=-1, vmax=1, ax=ax)
-    ax.set_title('지표 간 상관관계')
-    st.pyplot(fig)
-
-    bar = corr['FEEL_IDX'].drop('FEEL_IDX').sort_values(ascending=False)
-    fig2, ax2 = plt.subplots(figsize=(7,5))
-    sns.barplot(y=bar.index, x=bar.values, palette=palette, ax=ax2)
-    ax2.set_xlim(-1,1)
-    ax2.set_title('FEEL_IDX와 지표 상관')
-    st.pyplot(fig2)
-
-st.success("완료!")
+    view = st.radio("보기", ("1인당 매출", "엔터 방문횟수", "방문 1회당 매출"))
+    if view == "1인당 매출":
+        df = fp_card_scco_asset.groupby(['AGE_GROUP','GENDER'])['TOTAL_SALES'].mean().reset
