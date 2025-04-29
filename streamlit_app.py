@@ -11,44 +11,20 @@ from sklearn.decomposition import PCA
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
-from pathlib import Path
-import matplotlib.font_manager as fm
+import matplotlib
+import matplotlib.font_manager
+ 
+# 폰트 전체 리스트 확인
+[i.fname for i in matplotlib.font_manager.fontManager.ttflist]
+ 
+# 나눔 폰트 설치 확인
+[f.name for f in matplotlib.font_manager.fontManager.ttflist if 'Nanum' in f.name]
 
-# ── 한글 폰트 설정 - 웹 폰트 사용 방식으로 변경 ──
-st.markdown("""
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR&display=swap" rel="stylesheet">
-<style>
-html, body, [class*="css"] {
-    font-family: 'Noto Sans KR', sans-serif !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# Matplotlib 한글 폰트 설정 (다운로드 없이 기존 시스템 폰트 활용)
-def configure_korean_font():
-    try:
-        # 시스템에서 사용 가능한 한글 폰트 찾기
-        fonts = [f.name for f in fm.fontManager.ttflist]
-        korean_fonts = ['NanumGothic', 'Malgun Gothic', 'AppleGothic', 'Gulim', 'Dotum', 'Arial Unicode MS']
-        
-        for font in korean_fonts:
-            if font in fonts:
-                plt.rcParams['font.family'] = font
-                plt.rcParams['axes.unicode_minus'] = False
-                return True
-                
-        # 기본 폰트로 fallback
-        plt.rcParams['font.family'] = 'DejaVu Sans'
-        plt.rcParams['axes.unicode_minus'] = False
-        return False
-    except Exception as e:
-        st.warning(f"폰트 설정 중 오류가 발생했습니다: {e}")
-        return False
-
-# 한글 폰트 설정 시도
-korean_font_available = configure_korean_font()
-if not korean_font_available:
-    st.info("한글 폰트를 찾을 수 없습니다. 일부 한글이 정상적으로 표시되지 않을 수 있습니다.")
+import platform
+from matplotlib import font_manager, rc
+plt.rcParams['axes.unicode_minus'] = False
+if platform.system() == 'Linux':
+    rc('font', family='NanumGothic')
             
 # 데이터 로드
 DATA_DIR = Path(__file__).parent / "data"
