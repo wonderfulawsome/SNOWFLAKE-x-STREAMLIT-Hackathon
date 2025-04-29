@@ -1,3 +1,85 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+
+# ─────────────────────────────
+# 0. 기본 세팅
+# ─────────────────────────────
+st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
+sns.set_style("whitegrid")
+
+import matplotlib
+matplotlib.rcParams["font.family"] = "Malgun Gothic"
+matplotlib.rcParams["axes.unicode_minus"] = False
+st.markdown(
+    """
+    <style>
+      * { font-family: "Malgun Gothic", sans-serif !important; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ─────────────────────────────
+# 1. 데이터 로드
+# ─────────────────────────────
+DATA_DIR = Path(__file__).parent / "data"
+
+@st.cache_data(show_spinner=False)
+def load_data():
+    fp = pd.read_csv(DATA_DIR / "floating population.csv")
+    card = pd.read_csv(DATA_DIR / "Shinhan card sales.csv")
+    scco = pd.read_csv(DATA_DIR / "scco.csv")
+    return fp, card, scco
+
+try:
+    fp_df, card_df, scco_df = load_data()
+except FileNotFoundError as e:
+    st.error(f"데이터 파일을 찾을 수 없습니다: {e}")
+    st.stop()
+
+# ─────────────────────────────
+# 2. 병합 & 매핑
+# ─────────────────────────────
+merge_keys = [
+    "PROVINCE_CODE", "CITY_CODE", "DISTRICT_CODE",
+    "STANDARD_YEAR_MONTH", "WEEKDAY_WEEKEND",
+    "GENDER", "AGE_GROUP", "TIME_SLOT"
+]
+df = pd.merge(fp_df, card_df, on=merge_keys, how="inner", validate="m:m")
+
+if "DISTRICT_KOR_NAME" in scco_df.columns:
+    name_map = scco_df.set_index("DISTRICT_CODE")["DISTRICT_KOR_NAME"].to_dict()
+    df["DISTRICT_KOR_NAME"] = df["DISTRICT_CODE"].map(name_map)
+else:
+    df["DISTRICT_KOR_NAME"] = df["DISTRICT_CODE"].astype(str)
+
+# ─────────────────────────────
+# 3. 파생변수 & FEEL_IDX
+# ─────────────────────────────
+group_cols = merge_keys + ["DISTRICT_KOR_NAME"]
+numeric_cols = (
+    df.select_dtypes(include="number")
+      .columns
+      .difference(["PROVINCE_CODE", "CITY_CODE", "DISTRICT_CODE"])
+)
+features = [c for c in numeric_cols if c not in group_cols]
+
+X = df[features].dropna()
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+pca = PCA(n_components=1)
+pc1 = pca.fit_transform(X_scaled).ravel()
+pc1_norm = (pc1 - pc1.min()) / (pc1.max() - pc1.min() + 1e-9)
+df.loc[X.index, "FEEL_IDX"] = pc1_norm
+
+data = df.sample(frac=0.01, random_state=42)
+
 # ─────────────────────────────
 # 4. UI 구성
 # ─────────────────────────────
