@@ -11,37 +11,37 @@ from sklearn.decomposition import PCA
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
+# ── 한글 깨짐 방지 (리눅스 스트림릿 환경 대응) ──────────────────
 import matplotlib
-import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import streamlit as st
 
-# ── matplotlib 한글 폰트 자동 설정
-def set_matplotlib_font():
-    font_list = [f.name for f in fm.fontManager.ttflist]
-    if 'Malgun Gothic' in font_list:
-        matplotlib.rcParams['font.family'] = 'Malgun Gothic'
-    elif 'AppleGothic' in font_list:
-        matplotlib.rcParams['font.family'] = 'AppleGothic'
-    elif 'NanumGothic' in font_list:
-        matplotlib.rcParams['font.family'] = 'NanumGothic'
-    else:
-        matplotlib.rcParams['font.family'] = 'DejaVu Sans'  # 리눅스 기본 폰트
-    matplotlib.rcParams['axes.unicode_minus'] = False
+def set_korean_font():
+    candidates = [
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",  # Ubuntu Nanum
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+    for path in candidates:
+        try:
+            font = fm.FontProperties(fname=path)
+            matplotlib.rcParams["font.family"] = font.get_name()
+            break
+        except Exception:
+            continue
+    matplotlib.rcParams["axes.unicode_minus"] = False
 
-set_matplotlib_font()
+set_korean_font()
 
-# ── Streamlit 한글 폰트 CSS 설정
-st.markdown(
-    """
-    <style>
-    html, body, [class*="css"] {
-        font-family: 'Nanum Gothic', 'Noto Sans KR', 'Malgun Gothic', 'AppleGothic', 'DejaVu Sans', sans-serif;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;700&display=swap');
+html, body, [class*="css"] {
+    font-family: 'Noto Sans KR', 'Nanum Gothic', 'Malgun Gothic', sans-serif;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # 데이터 로드
 DATA_DIR = Path(__file__).parent / "data"
 
