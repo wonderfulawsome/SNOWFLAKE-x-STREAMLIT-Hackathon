@@ -7,24 +7,20 @@ from pathlib import Path
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
-# ─────────────────────────────
-# 0. 기본 세팅
-# ─────────────────────────────
+# 기본 세팅
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
 # 한글 폰트 설정
 st.markdown("""
     <style>
-    html, body, [class*="css"]  {
+    html, body, [class*="css"] {
         font-family: 'Malgun Gothic', 'Noto Sans KR', sans-serif;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────
-# 1. 데이터 로드
-# ─────────────────────────────
+# 데이터 로드
 DATA_DIR = Path(__file__).parent / "data"
 
 @st.cache_data(show_spinner=False)
@@ -36,45 +32,17 @@ def load_data():
 
 fp_df, card_df, scco_df = load_data()
 
-# ─────────────────────────────
-# 2. 병합 및 파생 변수 생성
-# ─────────────────────────────
-merge_keys = [
-    "PROVINCE_CODE", "CITY_CODE", "DISTRICT_CODE",
-    "STANDARD_YEAR_MONTH", "WEEKDAY_WEEKEND",
-    "GENDER", "AGE_GROUP", "TIME_SLOT"
-]
+# 병합
+merge_keys = ["PROVINCE_CODE", "CITY_CODE", "DISTRICT_CODE"]
+df = pd.merge(fp_df, scco_df[merge_keys + ["DISTRICT_KOR_NAME"]], on=merge_keys, how="left")
 
-df = pd.merge(fp_df, card_df, on=merge_keys, how="inner")
+# 파생변수
+df["전체인구"] = df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"] + df["VISITING_POPULATION"]
+df["소비활력지수"] = df["VISITING_POPULATION"] / df["전체인구"].replace(0, np.nan)
+df["유입지수"] = df["VISITING_POPULATION"] / (df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"]).replace(0, np.nan)
 
-# 행정동 이름 매핑
-if "DISTRICT_KOR_NAME" in scco_df.columns:
-    name_map = scco_df.set_index("DISTRICT_CODE")["DISTRICT_KOR_NAME"].to_dict()
-    df["DISTRICT_KOR_NAME"] = df["DISTRICT_CODE"].map(name_map)
-else:
-    df["DISTRICT_KOR_NAME"] = df["DISTRICT_CODE"].astype(str)
-
-# 파생 변수
-df["전체인구"] = df["COUNT"]  # COUNT를 전체 인구로 사용
-df["엔터전체매출"] = (
-    df.get("FOOD_SALES", 0) + df.get("COFFEE_SALES", 0) + df.get("BEAUTY_SALES", 0) +
-    df.get("ENTERTAINMENT_SALES", 0) + df.get("SPORTS_CULTURE_LEISURE_SALES", 0) +
-    df.get("TRAVEL_SALES", 0) + df.get("CLOTHING_ACCESSORIES_SALES", 0)
-)
-df["소비활력지수"] = df["엔터전체매출"] / df["전체인구"].replace(0, np.nan)
-df["유입지수"] = np.nan  # 계산 불가능하므로 NaN 처리
-df["엔터매출비율"] = df["엔터전체매출"] / df["TOTAL_SALES"].replace(0, np.nan)
-
-cnt_cols = [
-    "FOOD_COUNT", "COFFEE_COUNT", "BEAUTY_COUNT", "ENTERTAINMENT_COUNT",
-    "SPORTS_CULTURE_LEISURE_COUNT", "TRAVEL_COUNT", "CLOTHING_ACCESSORIES_COUNT"
-]
-df["엔터전체방문자수"] = df[cnt_cols].sum(axis=1)
-
-# ─────────────────────────────
-# 3. FEEL_IDX 계산
-# ─────────────────────────────
-X = df.drop(columns=merge_keys + ["DISTRICT_KOR_NAME"]).select_dtypes(include="number").dropna()
+# FEEL_IDX 계산
+X = df[["RESIDENTIAL_POPULATION", "WORKING_POPULATION", "VISITING_POPULATION", "소비활력지수", "유입지수"]].dropna()
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 pca = PCA(n_components=1)
@@ -86,9 +54,7 @@ df.loc[X.index, "FEEL_IDX"] = pc1_norm
 # 샘플링
 data = df.sample(frac=0.01, random_state=42)
 
-# ─────────────────────────────
-# 4. UI 구성
-# ─────────────────────────────
+# UI
 st.title("서울시 인스타 감성 지수 분석")
 
 top_districts = data["DISTRICT_KOR_NAME"].value_counts().head(10).index.tolist()
@@ -105,24 +71,20 @@ gender_mask = data["GENDER"].isin(gender)
 mask = districts_mask & age_groups_mask & gender_mask
 view = data.loc[mask]
 
-# ─────────────────────────────
-# 5. 요약 지표
-# ─────────────────────────────
+# 요약 지표
 st.subheader("요약 지표")
 c1, c2, c3 = st.columns(3)
 
 if not view.empty:
     c1.metric("평균 FEEL_IDX", f"{view['FEEL_IDX'].mean():.2f}")
     c2.metric("평균 소비활력지수", f"{view['소비활력지수'].mean():.2f}")
-    c3.metric("평균 엔터매출비율", f"{view['엔터매출비율'].mean():.2f}")
+    c3.metric("평균 유입지수", f"{view['유입지수'].mean():.2f}")
 else:
     c1.metric("평균 FEEL_IDX", "-")
     c2.metric("평균 소비활력지수", "-")
-    c3.metric("평균 엔터매출비율", "-")
+    c3.metric("평균 유입지수", "-")
 
-# ─────────────────────────────
-# 6. 분석 탭
-# ─────────────────────────────
+# 탭
 tab1, tab2, tab3 = st.tabs(["지수 상위 지역", "성별·연령 분석", "산점도"])
 
 with tab1:
@@ -148,9 +110,9 @@ with tab2:
 with tab3:
     st.subheader("산점도 분석")
     if not view.empty:
-        x_axis = st.selectbox("X축 변수", ["엔터전체매출", "소비활력지수", "엔터전체방문자수"])
-        y_axis = st.selectbox("Y축 변수", ["FEEL_IDX", "엔터매출비율"])
-        if all(col in view.columns for col in [x_axis, y_axis, "FEEL_IDX"]):
+        x_axis = st.selectbox("X축 변수", ["소비활력지수", "유입지수"])
+        y_axis = st.selectbox("Y축 변수", ["FEEL_IDX"])
+        if all(col in view.columns for col in [x_axis, y_axis]):
             fig, ax = plt.subplots(figsize=(6, 4))
             sns.scatterplot(data=view, x=x_axis, y=y_axis, hue="FEEL_IDX", palette="viridis", ax=ax)
             st.pyplot(fig)
