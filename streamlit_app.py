@@ -75,7 +75,7 @@ df.loc[X.index, "FEEL_IDX"] = pc1_norm
 data = df.sample(frac=0.01, random_state=42)
 
 # UI
-st.title("서울시 인스타 감성 지수 분석")
+st.title("서울시 감성 지수 매출분석")
 
 top_districts = data["DISTRICT_KOR_NAME"].value_counts().head(10).index.tolist()
 
