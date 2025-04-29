@@ -84,18 +84,18 @@ data = df.sample(frac=0.01, random_state=42)
 # ─────────────────────────────
 # 4. UI 구성
 # ─────────────────────────────
-st.title("서울시 인스타 감성 지수 분석")
+st.title("서울시 감성 지수 분석")
 
 with st.sidebar:
     districts = st.multiselect("행정동", sorted(data["DISTRICT_KOR_NAME"].dropna().unique()), [])
     age_groups = st.multiselect("연령대", sorted(data["AGE_GROUP"].unique()), [])
     gender = st.multiselect("성별", ["M", "F"], [])
 
-mask = (
-    (data["DISTRICT_KOR_NAME"].isin(districts) if districts else True) &
-    (data["AGE_GROUP"].isin(age_groups) if age_groups else True) &
-    (data["GENDER"].isin(gender) if gender else True)
-)
+districts_mask = data["DISTRICT_KOR_NAME"].isin(districts) if districts else pd.Series([True]*len(data))
+age_groups_mask = data["AGE_GROUP"].isin(age_groups) if age_groups else pd.Series([True]*len(data))
+gender_mask = data["GENDER"].isin(gender) if gender else pd.Series([True]*len(data))
+
+mask = districts_mask & age_groups_mask & gender_mask
 view = data.loc[mask]
 
 # 요약 지표
