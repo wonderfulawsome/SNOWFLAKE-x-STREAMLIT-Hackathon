@@ -83,7 +83,7 @@ data = df.sample(frac=0.01, random_state=42)
 # ─────────────────────────────
 # 4. UI 구성
 # ─────────────────────────────
-st.title("서울시 인스타 감성 지수 분석")
+st.title("서울시 감성 지수 매출분석")
 
 with st.sidebar:
     districts = st.multiselect("행정동", sorted(data["DISTRICT_KOR_NAME"].dropna().unique()), [])
