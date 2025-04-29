@@ -6,15 +6,25 @@ import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 import streamlit as st
-import snowflake.connector
 import matplotlib.font_manager as fm
+from datetime import datetime
+
+# 테스트 모드인지 확인 (secrets.toml에서 설정)
+USE_MOCK_DATA = False
+try:
+    USE_MOCK_DATA = st.secrets["config"]["use_mock_data"]
+except:
+    pass
 
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
 # 한글 폰트 설정 (배포 환경 대응)
-plt.rcParams['font.family'] = 'NanumGothic'
-plt.rcParams['axes.unicode_minus'] = False
+try:
+    plt.rcParams['font.family'] = 'NanumGothic'
+    plt.rcParams['axes.unicode_minus'] = False
+except:
+    pass
 
 # Streamlit에서 한글 폰트 문제를 회피하기 위한 대체 방법
 def korean_font():
@@ -25,37 +35,120 @@ def korean_font():
             plt.rc('font', family=fm.FontProperties(fname=font_path).get_name())
     except:
         # 배포 환경에서는 기본 폰트 사용
-        plt.rcParams['font.family'] = 'DejaVu Sans'
-        
+        try:
+            plt.rcParams['font.family'] = 'DejaVu Sans'
+        except:
+            pass
+
 korean_font()
 
-# Snowflake 연결
-def get_conn():
-    try:
-        return snowflake.connector.connect(
-            user=st.secrets["snowflake"]["user"],
-            password=st.secrets["snowflake"]["password"],
-            account=st.secrets["snowflake"]["account"],
-            warehouse=st.secrets["snowflake"]["warehouse"],
-            ocsp_fail_open=True,
-            insecure_mode=True,
-        )
-    except Exception as e:
-        st.error(f"Snowflake 연결 오류: {e}")
-        st.stop()
+# 사용 가능한 폰트 확인 및 설정
+def check_fonts():
+    fonts = [f.name for f in fm.fontManager.ttflist]
+    for font in ['NanumGothic', 'Malgun Gothic', 'AppleGothic', 'Arial Unicode MS']:
+        if font in fonts:
+            plt.rcParams['font.family'] = font
+            return
+    # 폰트가 없으면 기본 폰트 사용
+    plt.rcParams['font.family'] = 'sans-serif'
 
-@st.cache_data(show_spinner=True, ttl=3600)  # 캐시 유지 시간 추가
-def load_df(q: str) -> pd.DataFrame:
+check_fonts()
+
+# 목업 데이터 생성 함수
+def create_mock_data():
+    st.info("테스트 모드: 목업 데이터를 사용합니다.")
+    
+    # 공통 데이터 생성
+    districts = ['강남구', '서초구', '마포구', '종로구', '중구', '용산구', '성동구', '영등포구', '동작구', '광진구']
+    ages = ['20대', '30대', '40대', '50대', '60대 이상']
+    genders = ['M', 'F']
+    time_slots = ['오전', '오후', '저녁', '심야']
+    weekdays = ['평일', '주말']
+    n_samples = 1000
+    
+    # 공통 데이터
+    np.random.seed(42)
+    data = {
+        'STANDARD_YEAR_MONTH': [datetime.now().strftime('%Y%m') for _ in range(n_samples)],
+        'DISTRICT_CODE': np.random.randint(1, 26, n_samples),
+        'AGE_GROUP': np.random.choice(ages, n_samples),
+        'GENDER': np.random.choice(genders, n_samples),
+        'TIME_SLOT': np.random.choice(time_slots, n_samples),
+        'WEEKDAY_WEEKEND': np.random.choice(weekdays, n_samples),
+    }
+    
+    # fp_df: 유동인구 데이터
+    fp_df = pd.DataFrame(data.copy())
+    fp_df['RESIDENTIAL_POPULATION'] = np.random.randint(100, 10000, n_samples)
+    fp_df['WORKING_POPULATION'] = np.random.randint(100, 5000, n_samples)
+    fp_df['VISITING_POPULATION'] = np.random.randint(50, 2000, n_samples)
+    
+    # card_df: 카드 매출 데이터
+    card_df = pd.DataFrame(data.copy())
+    sales_categories = ['FOOD', 'COFFEE', 'BEAUTY', 'ENTERTAINMENT', 
+                       'SPORTS_CULTURE_LEISURE', 'TRAVEL', 'CLOTHING_ACCESSORIES']
+    
+    for cat in sales_categories:
+        card_df[f'{cat}_SALES'] = np.random.randint(10000, 1000000, n_samples)
+        card_df[f'{cat}_COUNT'] = np.random.randint(10, 1000, n_samples)
+    
+    card_df['TOTAL_SALES'] = card_df[[f'{cat}_SALES' for cat in sales_categories]].sum(axis=1)
+    card_df['TOTAL_COUNT'] = card_df[[f'{cat}_COUNT' for cat in sales_categories]].sum(axis=1)
+    
+    # asset_df: 자산 소득 데이터
+    asset_df = pd.DataFrame({
+        'STANDARD_YEAR_MONTH': data['STANDARD_YEAR_MONTH'],
+        'DISTRICT_CODE': data['DISTRICT_CODE'],
+        'AGE_GROUP': data['AGE_GROUP'],
+        'GENDER': data['GENDER'],
+        'ASSET_VALUE': np.random.randint(10000000, 1000000000, n_samples),
+        'INCOME_VALUE': np.random.randint(2000000, 10000000, n_samples)
+    })
+    
+    # scco_df: 지역 코드 데이터
+    district_codes = list(set(data['DISTRICT_CODE']))
+    scco_df = pd.DataFrame({
+        'DISTRICT_CODE': district_codes,
+        'DISTRICT_KOR_NAME': [districts[i % len(districts)] for i in range(len(district_codes))],
+        'GEOMETRY': ['POLYGON(...)' for _ in range(len(district_codes))]
+    })
+    
+    return fp_df, card_df, asset_df, scco_df
+
+# Snowflake 연결 (테스트 모드가 아닐 때만)
+if not USE_MOCK_DATA:
     try:
-        conn = get_conn()
-        cur = conn.cursor(); cur.execute(q)
-        df = pd.DataFrame(cur.fetchall(), columns=[c[0] for c in cur.description])
-        cur.close(); conn.close()
-        # 샘플 비율을 0.01로 높여 충분한 데이터 확보
-        return df.sample(frac=0.01, random_state=42) if not df.empty else df
-    except Exception as e:
-        st.error(f"데이터 로딩 오류: {e}")
-        return pd.DataFrame()  # 빈 데이터프레임 반환
+        import snowflake.connector
+        
+        def get_conn():
+            try:
+                return snowflake.connector.connect(
+                    user=st.secrets["snowflake"]["user"],
+                    password=st.secrets["snowflake"]["password"],
+                    account=st.secrets["snowflake"]["account"],
+                    warehouse=st.secrets["snowflake"]["warehouse"],
+                    ocsp_fail_open=True,
+                    insecure_mode=True,
+                )
+            except Exception as e:
+                st.error(f"Snowflake 연결 오류: {e}")
+                st.stop()
+
+        @st.cache_data(show_spinner=True, ttl=3600)
+        def load_df(q: str) -> pd.DataFrame:
+            try:
+                conn = get_conn()
+                cur = conn.cursor(); cur.execute(q)
+                df = pd.DataFrame(cur.fetchall(), columns=[c[0] for c in cur.description])
+                cur.close(); conn.close()
+                # 샘플 비율을 0.01로 높여 충분한 데이터 확보
+                return df.sample(frac=0.01, random_state=42) if not df.empty else df
+            except Exception as e:
+                st.error(f"데이터 로딩 오류: {e}")
+                return pd.DataFrame()
+    except ImportError:
+        st.error("snowflake-connector-python 패키지가 설치되어 있지 않습니다.")
+        USE_MOCK_DATA = True
 
 # 시작 시 안내 메시지
 st.title("서울시 감성 지수 대시보드")
@@ -64,29 +157,35 @@ st.markdown("""
 데이터가 로드되는 동안 잠시만 기다려주세요.
 """)
 
-# Snowflake 쿼리
-Q = {
-    "fp":    "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.FLOATING_POPULATION_INFO",
-    "card":  "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.CARD_SALES_INFO",
-    "asset": "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.ASSET_INCOME_INFO",
-    "scco":  "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.M_SCCO_MST",
-}
+# 데이터 로딩
+if USE_MOCK_DATA:
+    # 목업 데이터 사용
+    fp_df, card_df, asset_df, scco_df = create_mock_data()
+else:
+    # Snowflake 쿼리
+    Q = {
+        "fp":    "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.FLOATING_POPULATION_INFO",
+        "card":  "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.CARD_SALES_INFO",
+        "asset": "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.ASSET_INCOME_INFO",
+        "scco":  "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.M_SCCO_MST",
+    }
 
-# 데이터 로딩 - try/except로 오류 처리
-try:
-    with st.spinner("데이터 로딩 중…"):
-        fp_df    = load_df(Q["fp"])
-        card_df  = load_df(Q["card"])
-        asset_df = load_df(Q["asset"])
-        scco_df  = load_df(Q["scco"]).sample(frac=0.01, random_state=42)
+    # 데이터 로딩 - try/except로 오류 처리
+    try:
+        with st.spinner("데이터 로딩 중…"):
+            fp_df    = load_df(Q["fp"])
+            card_df  = load_df(Q["card"])
+            asset_df = load_df(Q["asset"])
+            scco_df  = load_df(Q["scco"]).sample(frac=0.01, random_state=42)
 
-    # 데이터가 비어있는지 확인
-    if fp_df.empty or card_df.empty or asset_df.empty or scco_df.empty:
-        st.warning("일부 데이터를 로드할 수 없습니다. Snowflake 연결을 확인해주세요.")
-        st.stop()
-except Exception as e:
-    st.error(f"데이터 로딩 중 오류가 발생했습니다: {e}")
-    st.stop()
+        # 데이터가 비어있는지 확인
+        if fp_df.empty or card_df.empty or asset_df.empty or scco_df.empty:
+            st.warning("일부 데이터를 로드할 수 없습니다. 테스트 모드로 전환합니다.")
+            fp_df, card_df, asset_df, scco_df = create_mock_data()
+    except Exception as e:
+        st.error(f"데이터 로딩 중 오류가 발생했습니다: {e}")
+        st.warning("테스트 모드로 전환합니다.")
+        fp_df, card_df, asset_df, scco_df = create_mock_data()
 
 # 전처리 함수
 def preprocess():
@@ -103,9 +202,10 @@ def preprocess():
 
         # 중복 컬럼 처리
         dup = [c for c in df.columns if c.endswith("_y")]
-        df = df.drop(columns=dup)
-        rename_cols = {c: c.replace("_x", "") for c in df.columns if c.endswith("_x")}
-        df = df.rename(columns=rename_cols)
+        if dup:
+            df = df.drop(columns=dup)
+            rename_cols = {c: c.replace("_x", "") for c in df.columns if c.endswith("_x")}
+            df = df.rename(columns=rename_cols)
 
         df["전체인구"] = df[["RESIDENTIAL_POPULATION","WORKING_POPULATION","VISITING_POPULATION"]].sum(axis=1)
 
@@ -157,13 +257,16 @@ def bar(df, x, y, ttl):
         st.warning("차트를 그릴 데이터가 없습니다.")
         return
     
-    fig, ax = plt.subplots(figsize=(14,7))
-    sns.barplot(data=df, x=x, y=y, palette=PALETTE, ax=ax)
-    ax.set_title(ttl)
-    ax.set_xlabel("")
-    ax.set_ylabel(y)
-    plt.xticks(rotation=45, ha="right")
-    st.pyplot(fig)
+    try:
+        fig, ax = plt.subplots(figsize=(14,7))
+        sns.barplot(data=df, x=x, y=y, palette=PALETTE, ax=ax)
+        ax.set_title(ttl)
+        ax.set_xlabel("")
+        ax.set_ylabel(y)
+        plt.xticks(rotation=45, ha="right")
+        st.pyplot(fig)
+    except Exception as e:
+        st.error(f"차트 생성 오류: {e}")
 
 # 사이드바
 st.sidebar.header("메뉴")
@@ -215,4 +318,4 @@ try:
 except Exception as e:
     st.error(f"차트 생성 중 오류가 발생했습니다: {e}")
 
-st.success("완료");
+st.success("완료"); 
