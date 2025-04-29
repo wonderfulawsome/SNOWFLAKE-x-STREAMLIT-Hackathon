@@ -25,6 +25,22 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ──── NEW: Matplotlib ‧ Streamlit 한글 폰트 설정 ────
+import matplotlib
+matplotlib.rcParams["font.family"] = "Malgun Gothic"   # 윈도 기본 한글 폰트
+matplotlib.rcParams["axes.unicode_minus"] = False      # - 기호 깨짐 방지
+import streamlit as st
+
+st.markdown(
+    """
+    <style>
+    /* Streamlit 기본 글꼴을 한글 지원 폰트로 변경 */
+    * { font-family: "Malgun Gothic", sans-serif !important; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # ─────────────────────────────
 # 1. 데이터 로드
 # ─────────────────────────────
