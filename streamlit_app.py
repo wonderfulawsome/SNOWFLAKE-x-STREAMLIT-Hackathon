@@ -49,7 +49,7 @@ with st.spinner("데이터 로딩 중…"):
     fp_df    = load_df(Q["fp"])
     card_df  = load_df(Q["card"])
     asset_df = load_df(Q["asset"])
-    scco_df  = load_df(Q["scco"])  # 경계 데이터는 작다고 가정, 전체 사용
+    scco_df  = load_df(Q["scco"]).sample(frac=0.01, random_state=42)  # 경계 데이터도 1% 샘플
 
 # 전처리
 
