@@ -12,20 +12,33 @@ st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wi
 sns.set_style("whitegrid")
             
 import os
-import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
+import matplotlib
+import streamlit as st
 
-# 폰트 파일 경로 - 대소문자 정확히 맞춰서!
+# ── 1. NanumGothic 폰트 로드 (리포지토리 fonts 폴더)
 font_path = os.path.join(os.path.dirname(__file__), "fonts", "NanumGothic.TTF")
 if os.path.exists(font_path):
-    font_prop = fm.FontProperties(fname=font_path)
-    plt.rcParams['font.family'] = font_prop.get_name()  # 이렇게 하지 말고
-    plt.rcParams['font.family'] = 'sans-serif'  # 이렇게 변경
-    plt.rcParams['font.sans-serif'] = [font_prop.get_name()] + plt.rcParams['font.sans-serif']
-    plt.rcParams['axes.unicode_minus'] = False
-    print(f"폰트 파일 '{font_path}' 성공적으로 로드됨!")
+    fm.fontManager.addfont(font_path)
+    nanum_font_name = fm.FontProperties(fname=font_path).get_name()
+    matplotlib.rcParams['font.family'] = nanum_font_name
+    matplotlib.rcParams['axes.unicode_minus'] = False
 else:
-    print(f"폰트 파일 '{font_path}'이 존재하지 않음!")
+    st.warning("❌ NanumGothic.TTF 파일이 fonts 폴더에 없습니다.")
+
+# ── 2. Streamlit UI CSS로도 강제 적용
+st.markdown(f"""
+<style>
+@font-face {{
+    font-family: 'NanumGothic';
+    src: url('fonts/NanumGothic.TTF') format('truetype');
+}}
+html, body, [class*="css"] {{
+    font-family: 'NanumGothic', 'sans-serif';
+}}
+</style>
+""", unsafe_allow_html=True)
             
 # 데이터 로드
 DATA_DIR = Path(__file__).parent / "data"
