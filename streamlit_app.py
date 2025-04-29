@@ -11,37 +11,38 @@ from sklearn.decomposition import PCA
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
-# ── 한글 깨짐 방지 (리눅스 스트림릿 환경 대응) ──────────────────
-import matplotlib
-import matplotlib.font_manager as fm
 import streamlit as st
+import matplotlib
+import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
+import requests
+from pathlib import Path
 
-def set_korean_font():
-    candidates = [
-        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",  # Ubuntu Nanum
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    ]
-    for path in candidates:
-        try:
-            font = fm.FontProperties(fname=path)
-            matplotlib.rcParams["font.family"] = font.get_name()
-            break
-        except Exception:
-            continue
-    matplotlib.rcParams["axes.unicode_minus"] = False
+# ── 1. Google Fonts에서 Noto Sans KR 다운로드 및 등록 ──
+font_path = Path("/tmp/NotoSansKR-Regular.otf")
+if not font_path.exists():
+    url = "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/Korean/NotoSansKR-Regular.otf"
+    r = requests.get(url)
+    font_path.write_bytes(r.content)
+fm.fontManager.addfont(str(font_path))
 
-set_korean_font()
+# ── 2. matplotlib 기본 폰트 설정 ──
+matplotlib.rcParams["font.family"] = fm.FontProperties(fname=str(font_path)).get_name()
+matplotlib.rcParams["axes.unicode_minus"] = False
 
+# ── 3. Streamlit 전체 UI 폰트 설정 ──
 st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;700&display=swap');
-html, body, [class*="css"] {
-    font-family: 'Noto Sans KR', 'Nanum Gothic', 'Malgun Gothic', sans-serif;
-}
-</style>
-""", unsafe_allow_html=True)
-
+    <style>
+    @font-face {
+        font-family: 'Noto Sans KR';
+        src: url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR&display=swap');
+    }
+    html, body, [class*="css"] {
+        font-family: 'Noto Sans KR', sans-serif;
+    }
+    </style>
+""", unsafe_allow_html=True
+            
 # 데이터 로드
 DATA_DIR = Path(__file__).parent / "data"
 
