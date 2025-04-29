@@ -37,38 +37,42 @@ def load_data():
 fp_df, card_df, scco_df = load_data()
 
 # ─────────────────────────────
-# 2. 병합 및 전처리
+# 2. 병합 및 파생 변수 생성
 # ─────────────────────────────
 merge_keys = [
     "PROVINCE_CODE", "CITY_CODE", "DISTRICT_CODE",
     "STANDARD_YEAR_MONTH", "WEEKDAY_WEEKEND",
     "GENDER", "AGE_GROUP", "TIME_SLOT"
 ]
+
 df = pd.merge(fp_df, card_df, on=merge_keys, how="inner")
 
+# 행정동 이름 매핑
 if "DISTRICT_KOR_NAME" in scco_df.columns:
     name_map = scco_df.set_index("DISTRICT_CODE")["DISTRICT_KOR_NAME"].to_dict()
     df["DISTRICT_KOR_NAME"] = df["DISTRICT_CODE"].map(name_map)
 else:
     df["DISTRICT_KOR_NAME"] = df["DISTRICT_CODE"].astype(str)
 
-# 필요한 파생변수 생성
-df["전체인구"] = df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"] + df["VISITING_POPULATION"]
-df["엔터전체매출"] = df.get("FOOD_SALES", 0) + df.get("COFFEE_SALES", 0) + df.get("BEAUTY_SALES", 0) + \
-                    df.get("ENTERTAINMENT_SALES", 0) + df.get("SPORTS_CULTURE_LEISURE_SALES", 0) + \
-                    df.get("TRAVEL_SALES", 0) + df.get("CLOTHING_ACCESSORIES_SALES", 0)
+# 파생 변수
+df["전체인구"] = df["COUNT"]  # COUNT를 전체 인구로 사용
+df["엔터전체매출"] = (
+    df.get("FOOD_SALES", 0) + df.get("COFFEE_SALES", 0) + df.get("BEAUTY_SALES", 0) +
+    df.get("ENTERTAINMENT_SALES", 0) + df.get("SPORTS_CULTURE_LEISURE_SALES", 0) +
+    df.get("TRAVEL_SALES", 0) + df.get("CLOTHING_ACCESSORIES_SALES", 0)
+)
 df["소비활력지수"] = df["엔터전체매출"] / df["전체인구"].replace(0, np.nan)
-df["유입지수"] = df["VISITING_POPULATION"] / (df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"]).replace(0, np.nan)
+df["유입지수"] = np.nan  # 계산 불가능하므로 NaN 처리
 df["엔터매출비율"] = df["엔터전체매출"] / df["TOTAL_SALES"].replace(0, np.nan)
 
-count_cols = [
+cnt_cols = [
     "FOOD_COUNT", "COFFEE_COUNT", "BEAUTY_COUNT", "ENTERTAINMENT_COUNT",
     "SPORTS_CULTURE_LEISURE_COUNT", "TRAVEL_COUNT", "CLOTHING_ACCESSORIES_COUNT"
 ]
-df["엔터전체방문자수"] = df[count_cols].sum(axis=1)
+df["엔터전체방문자수"] = df[cnt_cols].sum(axis=1)
 
 # ─────────────────────────────
-# 3. FEEL_IDX 생성
+# 3. FEEL_IDX 계산
 # ─────────────────────────────
 X = df.drop(columns=merge_keys + ["DISTRICT_KOR_NAME"]).select_dtypes(include="number").dropna()
 scaler = StandardScaler()
@@ -110,11 +114,11 @@ c1, c2, c3 = st.columns(3)
 if not view.empty:
     c1.metric("평균 FEEL_IDX", f"{view['FEEL_IDX'].mean():.2f}")
     c2.metric("평균 소비활력지수", f"{view['소비활력지수'].mean():.2f}")
-    c3.metric("평균 유입지수", f"{view['유입지수'].mean():.2f}")
+    c3.metric("평균 엔터매출비율", f"{view['엔터매출비율'].mean():.2f}")
 else:
     c1.metric("평균 FEEL_IDX", "-")
     c2.metric("평균 소비활력지수", "-")
-    c3.metric("평균 유입지수", "-")
+    c3.metric("평균 엔터매출비율", "-")
 
 # ─────────────────────────────
 # 6. 분석 탭
@@ -144,7 +148,7 @@ with tab2:
 with tab3:
     st.subheader("산점도 분석")
     if not view.empty:
-        x_axis = st.selectbox("X축 변수", ["엔터전체매출", "소비활력지수", "유입지수", "엔터전체방문자수"])
+        x_axis = st.selectbox("X축 변수", ["엔터전체매출", "소비활력지수", "엔터전체방문자수"])
         y_axis = st.selectbox("Y축 변수", ["FEEL_IDX", "엔터매출비율"])
         if all(col in view.columns for col in [x_axis, y_axis, "FEEL_IDX"]):
             fig, ax = plt.subplots(figsize=(6, 4))
