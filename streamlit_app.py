@@ -11,15 +11,37 @@ from sklearn.decomposition import PCA
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
-# 한글 폰트 설정
-st.markdown("""
+import matplotlib
+import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
+import streamlit as st
+
+# ── matplotlib 한글 폰트 자동 설정
+def set_matplotlib_font():
+    font_list = [f.name for f in fm.fontManager.ttflist]
+    if 'Malgun Gothic' in font_list:
+        matplotlib.rcParams['font.family'] = 'Malgun Gothic'
+    elif 'AppleGothic' in font_list:
+        matplotlib.rcParams['font.family'] = 'AppleGothic'
+    elif 'NanumGothic' in font_list:
+        matplotlib.rcParams['font.family'] = 'NanumGothic'
+    else:
+        matplotlib.rcParams['font.family'] = 'DejaVu Sans'  # 리눅스 기본 폰트
+    matplotlib.rcParams['axes.unicode_minus'] = False
+
+set_matplotlib_font()
+
+# ── Streamlit 한글 폰트 CSS 설정
+st.markdown(
+    """
     <style>
     html, body, [class*="css"] {
-        font-family: 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+        font-family: 'Nanum Gothic', 'Noto Sans KR', 'Malgun Gothic', 'AppleGothic', 'DejaVu Sans', sans-serif;
     }
     </style>
-""", unsafe_allow_html=True)
-
+    """,
+    unsafe_allow_html=True
+)
 # 데이터 로드
 DATA_DIR = Path(__file__).parent / "data"
 
