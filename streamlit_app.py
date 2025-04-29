@@ -59,10 +59,10 @@ Q_SCCO  = "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTIO
 
 @st.cache_data(show_spinner=True)
 def load_all():
-    fp    = load_query(Q_FP).sample(frac=0.01, random_state=42)
-    card  = load_query(Q_CARD).sample(frac=0.01, random_state=42)
-    asset = load_query(Q_ASSET).sample(frac=0.01, random_state=42)
-    scco  = load_query(Q_SCCO).sample(frac=0.01, random_state=42)
+    fp    = load_query(Q_FP).sample(frac=0.001, random_state=42)
+    card  = load_query(Q_CARD).sample(frac=0.001, random_state=42)
+    asset = load_query(Q_ASSET).sample(frac=0.001, random_state=42)
+    scco  = load_query(Q_SCCO).sample(frac=0.001, random_state=42)
     return fp, card, asset, scco
 
 # 데이터 전처리
