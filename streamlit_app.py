@@ -83,7 +83,7 @@ data = df.sample(frac=0.01, random_state=42)
 # ─────────────────────────────
 # 4. UI 구성
 # ─────────────────────────────
-st.title("서울시 감성 지수 매출분석")
+st.title("서울시 인스타 감성 지수 분석")
 
 with st.sidebar:
     districts = st.multiselect("행정동", sorted(data["DISTRICT_KOR_NAME"].dropna().unique()), [])
@@ -157,12 +157,17 @@ else:  # 산점도
     if not view.empty:
         x_axis = st.selectbox("X축 변수", ["엔터전체매출", "소비활력지수", "유입지수", "엔터전체방문자수"])
         y_axis = st.selectbox("Y축 변수", ["FEEL_IDX", "엔터매출비율"])
-        fig, ax = plt.subplots(figsize=(6, 4))
-        sns.scatterplot(
-            data=view, x=x_axis, y=y_axis,
-            hue="FEEL_IDX", palette="viridis", alpha=0.6, ax=ax
-        )
-        st.pyplot(fig)
+
+        required_cols = [x_axis, y_axis, "FEEL_IDX"]
+        if all(col in view.columns for col in required_cols):
+            fig, ax = plt.subplots(figsize=(6, 4))
+            sns.scatterplot(
+                data=view, x=x_axis, y=y_axis,
+                hue="FEEL_IDX", palette="viridis", alpha=0.6, ax=ax
+            )
+            st.pyplot(fig)
+        else:
+            st.info("선택한 컬럼이 데이터에 없습니다.")
     else:
         st.info("선택된 데이터가 없습니다.")
 
