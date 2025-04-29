@@ -41,7 +41,7 @@ st.markdown("""
         font-family: 'Noto Sans KR', sans-serif;
     }
     </style>
-""", unsafe_allow_html=True
+""", unsafe_allow_html=True)
             
 # 데이터 로드
 DATA_DIR = Path(__file__).parent / "data"
