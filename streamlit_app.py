@@ -11,37 +11,20 @@ from sklearn.decomposition import PCA
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
 
-import streamlit as st
-import matplotlib
-import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
-import requests
-from pathlib import Path
+# ── 한글 폰트 (환경·배포 무관 안전)
+def set_korean_font():
+    local_font = Path(__file__).parent / "assets" / "NanumGothic.ttf"
+    if local_font.exists():
+        plt.rc("font", family=fm.FontProperties(fname=str(local_font)).get_name())
+        return
+    for cand in ["NanumGothic", "Noto Sans KR", "AppleGothic"]:
+        if any(cand in fp for fp in fm.findSystemFonts()):
+            plt.rc("font", family=cand)
+            return
+    plt.rc("font", family="DejaVu Sans")          # 마지막 fallback
 
-# ── 1. Google Fonts에서 Noto Sans KR 다운로드 및 등록 ──
-font_path = Path("/tmp/NotoSansKR-Regular.otf")
-if not font_path.exists():
-    url = "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/Korean/NotoSansKR-Regular.otf"
-    r = requests.get(url)
-    font_path.write_bytes(r.content)
-fm.fontManager.addfont(str(font_path))
-
-# ── 2. matplotlib 기본 폰트 설정 ──
-matplotlib.rcParams["font.family"] = fm.FontProperties(fname=str(font_path)).get_name()
-matplotlib.rcParams["axes.unicode_minus"] = False
-
-# ── 3. Streamlit 전체 UI 폰트 설정 ──
-st.markdown("""
-    <style>
-    @font-face {
-        font-family: 'Noto Sans KR';
-        src: url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR&display=swap');
-    }
-    html, body, [class*="css"] {
-        font-family: 'Noto Sans KR', sans-serif;
-    }
-    </style>
-""", unsafe_allow_html=True)
+set_korean_font()
+plt.rcParams["axes.unicode_minus"] = False
             
 # 데이터 로드
 DATA_DIR = Path(__file__).parent / "data"
