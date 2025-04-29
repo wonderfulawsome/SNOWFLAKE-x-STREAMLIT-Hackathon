@@ -15,10 +15,17 @@ import os
 import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 
+# 폰트 파일 경로 - 대소문자 정확히 맞춰서!
 font_path = os.path.join(os.path.dirname(__file__), "fonts", "NanumGothic.TTF")
 if os.path.exists(font_path):
-    plt.rcParams['font.family'] = fm.FontProperties(fname=font_path).get_name()
+    font_prop = fm.FontProperties(fname=font_path)
+    plt.rcParams['font.family'] = font_prop.get_name()  # 이렇게 하지 말고
+    plt.rcParams['font.family'] = 'sans-serif'  # 이렇게 변경
+    plt.rcParams['font.sans-serif'] = [font_prop.get_name()] + plt.rcParams['font.sans-serif']
     plt.rcParams['axes.unicode_minus'] = False
+    print(f"폰트 파일 '{font_path}' 성공적으로 로드됨!")
+else:
+    print(f"폰트 파일 '{font_path}'이 존재하지 않음!")
             
 # 데이터 로드
 DATA_DIR = Path(__file__).parent / "data"
