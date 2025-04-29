@@ -33,14 +33,13 @@ DATA_DIR = Path(__file__).parent / "data"
 
 @st.cache_data(show_spinner=False)
 def load_data():
-    fp    = pd.read_csv(DATA_DIR / "floating population.csv")
-    card  = pd.read_csv(DATA_DIR / "Shinhan card sales.csv")
-    asset = pd.read_csv(DATA_DIR / "asset income.csv")
-    scco  = pd.read_csv(DATA_DIR / "scco.csv")
-    return fp, card, asset, scco
+    fp   = pd.read_csv(DATA_DIR / "floating population.csv")
+    card = pd.read_csv(DATA_DIR / "Shinhan card sales.csv")
+    scco = pd.read_csv(DATA_DIR / "scco.csv")
+    return fp, card, scco
 
 try:
-    fp_df, card_df, asset_df, scco_df = load_data()
+    fp_df, card_df, scco_df = load_data()
 except FileNotFoundError as e:
     st.error(f"데이터 파일을 찾을 수 없습니다: {e}")
     st.stop()
@@ -48,51 +47,55 @@ except FileNotFoundError as e:
 # ─────────────────────────────
 # 2. 전처리 & 파생변수
 # ─────────────────────────────
-def preprocess(fp, card, asset, scco):
-    # merge fp + card
+def preprocess(fp, card, scco):
+    # 1) fp + card 병합
     df = pd.merge(
         fp, card,
-        on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER","TIME_SLOT","WEEKDAY_WEEKEND"],
-        how="inner", validate="m:m"
+        on=[
+            "STANDARD_YEAR_MONTH",
+            "DISTRICT_CODE", "AGE_GROUP", "GENDER",
+            "TIME_SLOT", "WEEKDAY_WEEKEND"
+        ],
+        how="inner",
+        validate="m:m"
     )
-    # merge + asset
-    df = pd.merge(
-        df, asset,
-        on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER"],
-        how="inner", validate="m:m"
+    # 2) district name 매핑
+    name_map = (
+        scco[["DISTRICT_CODE","DISTRICT_KOR_NAME"]]
+        .drop_duplicates("DISTRICT_CODE")
+        .set_index("DISTRICT_CODE")["DISTRICT_KOR_NAME"]
+        .to_dict()
     )
-    # 중복 컬럼 제거
-    dup = [c for c in df.columns if c.endswith(("_x","_y"))]
-    df = df.drop(columns=dup)
-    # district name 매핑
-    scco_map = (scco[["DISTRICT_CODE","DISTRICT_KOR_NAME"]]
-                .drop_duplicates("DISTRICT_CODE")
-                .set_index("DISTRICT_CODE")["DISTRICT_KOR_NAME"]
-                .to_dict())
-    df["DISTRICT_KOR_NAME"] = df["DISTRICT_CODE"].map(scco_map)
-    # 파생 변수
+    df["DISTRICT_KOR_NAME"] = df["DISTRICT_CODE"].map(name_map)
+    # 3) 파생 변수
     df["전체인구"]     = df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"] + df["VISITING_POPULATION"]
-    df["엔터전체매출"] = (df["FOOD_SALES"] + df["COFFEE_SALES"] + df["BEAUTY_SALES"]
-                          + df["ENTERTAINMENT_SALES"] + df["SPORTS_CULTURE_LEISURE_SALES"]
-                          + df["TRAVEL_SALES"] + df["CLOTHING_ACCESSORIES_SALES"])
+    df["엔터전체매출"] = (
+        df["FOOD_SALES"] + df["COFFEE_SALES"] + df["BEAUTY_SALES"]
+        + df["ENTERTAINMENT_SALES"] + df["SPORTS_CULTURE_LEISURE_SALES"]
+        + df["TRAVEL_SALES"] + df["CLOTHING_ACCESSORIES_SALES"]
+    )
     df["소비활력지수"] = df["엔터전체매출"] / df["전체인구"].replace(0, np.nan)
-    df["유입지수"]     = df["VISITING_POPULATION"] / (df["RESIDENTIAL_POPULATION"]+df["WORKING_POPULATION"]).replace(0, np.nan)
+    df["유입지수"]     = df["VISITING_POPULATION"] / (
+        df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"]
+    ).replace(0, np.nan)
     df["엔터매출비율"] = df["엔터전체매출"] / df["TOTAL_SALES"].replace(0, np.nan)
-    cnt_cols = ["FOOD_COUNT","COFFEE_COUNT","BEAUTY_COUNT","ENTERTAINMENT_COUNT",
-                "SPORTS_CULTURE_LEISURE_COUNT","TRAVEL_COUNT","CLOTHING_ACCESSORIES_COUNT"]
+    cnt_cols = [
+        "FOOD_COUNT","COFFEE_COUNT","BEAUTY_COUNT","ENTERTAINMENT_COUNT",
+        "SPORTS_CULTURE_LEISURE_COUNT","TRAVEL_COUNT","CLOTHING_ACCESSORIES_COUNT"
+    ]
     df["엔터전체방문자수"] = df[cnt_cols].sum(axis=1)
     df["엔터매출밀도"]   = df["엔터전체매출"] / df["엔터전체방문자수"].replace(0, np.nan)
-    # PCA 기반 FEEL_IDX
-    emo = ["엔터전체매출","소비활력지수","유입지수","엔터매출비율","엔터전체방문자수","엔터매출밀도"]
-    X   = df[emo].dropna()
+    # 4) PCA 기반 FEEL_IDX
+    emo_vars = ["엔터전체매출","소비활력지수","유입지수","엔터매출비율","엔터전체방문자수","엔터매출밀도"]
+    X = df[emo_vars].dropna()
     pca = PCA(n_components=1)
     pc1 = pca.fit_transform(StandardScaler().fit_transform(X))
     pc1n = (pc1 - pc1.min()) / (pc1.max() - pc1.min() + 1e-9)
     df.loc[X.index, "FEEL_IDX"] = pc1n.ravel()
-    # 샘플링
+    # 5) 샘플링
     return df.sample(frac=0.01, random_state=42)
 
-data = preprocess(fp_df, card_df, asset_df, scco_df)
+data = preprocess(fp_df, card_df, scco_df)
 
 # ─────────────────────────────
 # 3. UI: 필터
@@ -115,9 +118,9 @@ view = data[mask]
 # ─────────────────────────────
 st.subheader("요약 지표")
 c1, c2, c3 = st.columns(3)
-c1.metric("평균 FEEL_IDX",      f"{view['FEEL_IDX'].mean():.2f}")
-c2.metric("평균 소비활력지수",   f"{view['소비활력지수'].mean():.2f}")
-c3.metric("평균 유입지수",      f"{view['유입지수'].mean():.2f}")
+c1.metric("평균 FEEL_IDX",    f"{view['FEEL_IDX'].mean():.2f}")
+c2.metric("평균 소비활력지수", f"{view['소비활력지수'].mean():.2f}")
+c3.metric("평균 유입지수",    f"{view['유입지수'].mean():.2f}")
 
 # ─────────────────────────────
 # 5. 탭별 시각화
