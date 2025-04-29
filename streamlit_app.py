@@ -10,21 +10,6 @@ from sklearn.decomposition import PCA
 # 기본 세팅
 st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
 sns.set_style("whitegrid")
-
-import matplotlib
-import matplotlib.font_manager
- 
-# 폰트 전체 리스트 확인
-[i.fname for i in matplotlib.font_manager.fontManager.ttflist]
- 
-# 나눔 폰트 설치 확인
-[f.name for f in matplotlib.font_manager.fontManager.ttflist if 'Nanum' in f.name]
-
-import platform
-from matplotlib import font_manager, rc
-plt.rcParams['axes.unicode_minus'] = False
-if platform.system() == 'Linux':
-    rc('font', family='NanumGothic')
             
 # 데이터 로드
 DATA_DIR = Path(__file__).parent / "data"
