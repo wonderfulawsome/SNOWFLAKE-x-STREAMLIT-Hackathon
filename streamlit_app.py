@@ -98,8 +98,9 @@ def preprocess():
         "엔터방문자비율", "엔터활동밀도", "엔터매출밀도",
     ]
     X = df[emo_vars].dropna()
-    pc1 = PCA(n_components=1).fit_transform(StandardScaler().fit_transform(X))
-    df.loc[X.index, "FEEL_IDX"] = (pc1 - pc1.min()) / (pc1.max() - pc1.min() + 1e-9)
+    if not X.empty:
+        pc1 = PCA(n_components=1).fit_transform(StandardScaler().fit_transform(X))
+        df.loc[X.index, "FEEL_IDX"] = (pc1 - pc1.min()) / (pc1.max() - pc1.min() + 1e-9)
 
     return df
 
@@ -114,11 +115,11 @@ st.sidebar.header("메뉴")
 page = st.sidebar.selectbox("페이지", (
     "방문자수 TOP", "방문자 1인당 매출", "유입지수 TOP", "성별·연령 소비", "상관관계"))
 
-palette = 'rocket'
+PALETTE = 'rocket'
 
-def bar_chart(df, x, y, title):
-    fig, ax = plt.subplots(figsize=(14,7))
-    sns.barplot(data=df, x=x, y=y, palette=palette, ax=ax)
+def bar_chart(df: pd.DataFrame, x: str, y: str, title: str):
+    fig, ax = plt.subplots(figsize=(14, 7))
+    sns.barplot(data=df, x=x, y=y, palette=PALETTE, ax=ax)
     ax.set_title(title)
     ax.set_xlabel(x)
     ax.set_ylabel(y)
@@ -131,7 +132,7 @@ if page == "방문자수 TOP":
     bar_chart(agg, 'DISTRICT_KOR_NAME', '엔터전체방문자수', '방문자수 상위 30개 행정동')
 
 elif page == "방문자 1인당 매출":
-    agg = fp_card_scco_asset.groupby('DISTRICT_KOR_NAME').agg({'엔터전체매출':'sum','엔터전체방문자수':'sum'})
+    agg = fp_card_scco_asset.groupby('DISTRICT_KOR_NAME').agg({'엔터전체매출':'sum', '엔터전체방문자수':'sum'})
     agg['방문자1인당엔터매출'] = agg['엔터전체매출'] / agg['엔터전체방문자수'].replace(0, np.nan)
     agg = agg.nlargest(30, '방문자1인당엔터매출').reset_index()
     bar_chart(agg, 'DISTRICT_KOR_NAME', '방문자1인당엔터매출', '방문자 1인당 엔터매출 상위 30개')
@@ -143,5 +144,6 @@ elif page == "유입지수 TOP":
 elif page == "성별·연령 소비":
     gender_palette = {'M': '#3498db', 'F': '#e75480'}
     view = st.radio("보기", ("1인당 매출", "엔터 방문횟수", "방문 1회당 매출"))
+
     if view == "1인당 매출":
-        df = fp_card_scco_asset.groupby(['AGE_GROUP','GENDER'])['TOTAL_SALES'].mean().reset
+        df = fp_card
