@@ -1,321 +1,165 @@
-import os
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
 import streamlit as st
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
-from datetime import datetime
+import plotly.graph_objects as go
+from pathlib import Path
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from xgboost import XGBRegressor
 
-# 테스트 모드인지 확인 (secrets.toml에서 설정)
-USE_MOCK_DATA = False
-try:
-    USE_MOCK_DATA = st.secrets["config"]["use_mock_data"]
-except:
-    pass
-
-st.set_page_config(page_title="서울시 감성 지수 대시보드", layout="wide")
+# 설정 --------------------------------------------------
+st.set_page_config(page_title="Henry Hub Gas Dashboard", layout="wide")
 sns.set_style("whitegrid")
 
-# 한글 폰트 설정 (배포 환경 대응)
-try:
-    plt.rcParams['font.family'] = 'NanumGothic'
-    plt.rcParams['axes.unicode_minus'] = False
-except:
-    pass
-
-# Streamlit에서 한글 폰트 문제를 회피하기 위한 대체 방법
-def korean_font():
-    try:
-        # 로컬 환경
-        font_path = "C:/Windows/Fonts/malgun.ttf"
-        if os.path.exists(font_path):
-            plt.rc('font', family=fm.FontProperties(fname=font_path).get_name())
-    except:
-        # 배포 환경에서는 기본 폰트 사용
-        try:
-            plt.rcParams['font.family'] = 'DejaVu Sans'
-        except:
-            pass
-
-korean_font()
-
-# 사용 가능한 폰트 확인 및 설정
-def check_fonts():
-    fonts = [f.name for f in fm.fontManager.ttflist]
-    for font in ['NanumGothic', 'Malgun Gothic', 'AppleGothic', 'Arial Unicode MS']:
-        if font in fonts:
-            plt.rcParams['font.family'] = font
+# 폰트 --------------------------------------------------
+def set_korean_font():
+    local = Path(__file__).parent / "assets" / "NanumGothic.ttf"
+    if local.exists():
+        plt.rc("font", family=fm.FontProperties(fname=str(local)).get_name())
+        return
+    for cand in ["NanumGothic", "Noto Sans KR", "AppleGothic"]:
+        if any(cand in fp for fp in fm.findSystemFonts()):
+            plt.rc("font", family=cand)
             return
-    # 폰트가 없으면 기본 폰트 사용
-    plt.rcParams['font.family'] = 'sans-serif'
+    plt.rc("font", family="DejaVu Sans")
 
-check_fonts()
+set_korean_font()
+plt.rcParams["axes.unicode_minus"] = False
 
-# 목업 데이터 생성 함수
-def create_mock_data():
-    st.info("테스트 모드: 목업 데이터를 사용합니다.")
-    
-    # 공통 데이터 생성
-    districts = ['강남구', '서초구', '마포구', '종로구', '중구', '용산구', '성동구', '영등포구', '동작구', '광진구']
-    ages = ['20대', '30대', '40대', '50대', '60대 이상']
-    genders = ['M', 'F']
-    time_slots = ['오전', '오후', '저녁', '심야']
-    weekdays = ['평일', '주말']
-    n_samples = 1000
-    
-    # 공통 데이터
-    np.random.seed(42)
-    data = {
-        'STANDARD_YEAR_MONTH': [datetime.now().strftime('%Y%m') for _ in range(n_samples)],
-        'DISTRICT_CODE': np.random.randint(1, 26, n_samples),
-        'AGE_GROUP': np.random.choice(ages, n_samples),
-        'GENDER': np.random.choice(genders, n_samples),
-        'TIME_SLOT': np.random.choice(time_slots, n_samples),
-        'WEEKDAY_WEEKEND': np.random.choice(weekdays, n_samples),
-    }
-    
-    # fp_df: 유동인구 데이터
-    fp_df = pd.DataFrame(data.copy())
-    fp_df['RESIDENTIAL_POPULATION'] = np.random.randint(100, 10000, n_samples)
-    fp_df['WORKING_POPULATION'] = np.random.randint(100, 5000, n_samples)
-    fp_df['VISITING_POPULATION'] = np.random.randint(50, 2000, n_samples)
-    
-    # card_df: 카드 매출 데이터
-    card_df = pd.DataFrame(data.copy())
-    sales_categories = ['FOOD', 'COFFEE', 'BEAUTY', 'ENTERTAINMENT', 
-                       'SPORTS_CULTURE_LEISURE', 'TRAVEL', 'CLOTHING_ACCESSORIES']
-    
-    for cat in sales_categories:
-        card_df[f'{cat}_SALES'] = np.random.randint(10000, 1000000, n_samples)
-        card_df[f'{cat}_COUNT'] = np.random.randint(10, 1000, n_samples)
-    
-    card_df['TOTAL_SALES'] = card_df[[f'{cat}_SALES' for cat in sales_categories]].sum(axis=1)
-    card_df['TOTAL_COUNT'] = card_df[[f'{cat}_COUNT' for cat in sales_categories]].sum(axis=1)
-    
-    # asset_df: 자산 소득 데이터
-    asset_df = pd.DataFrame({
-        'STANDARD_YEAR_MONTH': data['STANDARD_YEAR_MONTH'],
-        'DISTRICT_CODE': data['DISTRICT_CODE'],
-        'AGE_GROUP': data['AGE_GROUP'],
-        'GENDER': data['GENDER'],
-        'ASSET_VALUE': np.random.randint(10000000, 1000000000, n_samples),
-        'INCOME_VALUE': np.random.randint(2000000, 10000000, n_samples)
-    })
-    
-    # scco_df: 지역 코드 데이터
-    district_codes = list(set(data['DISTRICT_CODE']))
-    scco_df = pd.DataFrame({
-        'DISTRICT_CODE': district_codes,
-        'DISTRICT_KOR_NAME': [districts[i % len(districts)] for i in range(len(district_codes))],
-        'GEOMETRY': ['POLYGON(...)' for _ in range(len(district_codes))]
-    })
-    
-    return fp_df, card_df, asset_df, scco_df
+TARGET = "Natural_Gas_US_Henry_Hub_Gas"
+DATA_DIR = Path(__file__).parent / "data"
 
-# Snowflake 연결 (테스트 모드가 아닐 때만)
-if not USE_MOCK_DATA:
-    try:
-        import snowflake.connector
-        
-        def get_conn():
-            try:
-                return snowflake.connector.connect(
-                    user=st.secrets["snowflake"]["user"],
-                    password=st.secrets["snowflake"]["password"],
-                    account=st.secrets["snowflake"]["account"],
-                    warehouse=st.secrets["snowflake"]["warehouse"],
-                    ocsp_fail_open=True,
-                    insecure_mode=True,
-                )
-            except Exception as e:
-                st.error(f"Snowflake 연결 오류: {e}")
-                st.stop()
+# 데이터 -------------------------------------------------
+@st.cache_data(show_spinner=False)
+def load_data():
+    train   = pd.read_csv(DATA_DIR / "department store .csv")
+    test    = pd.read_csv(DATA_DIR / "floating population.csv")
+    card    = pd.read_csv(DATA_DIR / "Shinhan card sales.csv")
+    scco    = pd.read_csv(DATA_DIR / "scco.csv")
+    return train, test, card, scco
 
-        @st.cache_data(show_spinner=True, ttl=3600)
-        def load_df(q: str) -> pd.DataFrame:
-            try:
-                conn = get_conn()
-                cur = conn.cursor(); cur.execute(q)
-                df = pd.DataFrame(cur.fetchall(), columns=[c[0] for c in cur.description])
-                cur.close(); conn.close()
-                # 샘플 비율을 0.01로 높여 충분한 데이터 확보
-                return df.sample(frac=0.01, random_state=42) if not df.empty else df
-            except Exception as e:
-                st.error(f"데이터 로딩 오류: {e}")
-                return pd.DataFrame()
-    except ImportError:
-        st.error("snowflake-connector-python 패키지가 설치되어 있지 않습니다.")
-        USE_MOCK_DATA = True
-
-# 시작 시 안내 메시지
-st.title("서울시 감성 지수 대시보드")
-st.markdown("""
-이 대시보드는 서울시의 감성 지수를 시각화합니다.
-데이터가 로드되는 동안 잠시만 기다려주세요.
-""")
-
-# 데이터 로딩
-if USE_MOCK_DATA:
-    # 목업 데이터 사용
-    fp_df, card_df, asset_df, scco_df = create_mock_data()
-else:
-    # Snowflake 쿼리
-    Q = {
-        "fp":    "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.FLOATING_POPULATION_INFO",
-        "card":  "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.CARD_SALES_INFO",
-        "asset": "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.ASSET_INCOME_INFO",
-        "scco":  "SELECT * FROM SEOUL_DISTRICTLEVEL_DATA_FLOATING_POPULATION_CONSUMPTION_AND_ASSETS.GRANDATA.M_SCCO_MST",
-    }
-
-    # 데이터 로딩 - try/except로 오류 처리
-    try:
-        with st.spinner("데이터 로딩 중…"):
-            fp_df    = load_df(Q["fp"])
-            card_df  = load_df(Q["card"])
-            asset_df = load_df(Q["asset"])
-            scco_df  = load_df(Q["scco"]).sample(frac=0.01, random_state=42)
-
-        # 데이터가 비어있는지 확인
-        if fp_df.empty or card_df.empty or asset_df.empty or scco_df.empty:
-            st.warning("일부 데이터를 로드할 수 없습니다. 테스트 모드로 전환합니다.")
-            fp_df, card_df, asset_df, scco_df = create_mock_data()
-    except Exception as e:
-        st.error(f"데이터 로딩 중 오류가 발생했습니다: {e}")
-        st.warning("테스트 모드로 전환합니다.")
-        fp_df, card_df, asset_df, scco_df = create_mock_data()
-
-# 전처리 함수
-def preprocess():
-    try:
-        df = (
-            fp_df.merge(card_df, on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER","TIME_SLOT","WEEKDAY_WEEKEND"], how="inner")
-                .merge(asset_df, on=["STANDARD_YEAR_MONTH","DISTRICT_CODE","AGE_GROUP","GENDER"], how="inner")
-                .merge(scco_df, on="DISTRICT_CODE", how="inner")
-        )
-
-        if df.empty:
-            st.warning("데이터 병합 후 결과가 비어있습니다.")
-            return pd.DataFrame()
-
-        # 중복 컬럼 처리
-        dup = [c for c in df.columns if c.endswith("_y")]
-        if dup:
-            df = df.drop(columns=dup)
-            rename_cols = {c: c.replace("_x", "") for c in df.columns if c.endswith("_x")}
-            df = df.rename(columns=rename_cols)
-
-        df["전체인구"] = df[["RESIDENTIAL_POPULATION","WORKING_POPULATION","VISITING_POPULATION"]].sum(axis=1)
-
-        sales_cols = [
-            "FOOD_SALES","COFFEE_SALES","BEAUTY_SALES","ENTERTAINMENT_SALES",
-            "SPORTS_CULTURE_LEISURE_SALES","TRAVEL_SALES","CLOTHING_ACCESSORIES_SALES",
-        ]
-        count_cols = [
-            "FOOD_COUNT","COFFEE_COUNT","BEAUTY_COUNT","ENTERTAINMENT_COUNT",
-            "SPORTS_CULTURE_LEISURE_COUNT","TRAVEL_COUNT","CLOTHING_ACCESSORIES_COUNT",
-        ]
-
-        df["엔터전체매출"] = df[sales_cols].sum(axis=1)
-        df["엔터전체방문자수"] = df[count_cols].sum(axis=1)
-
-        df["엔터매출비율"] = df["엔터전체매출"] / df["TOTAL_SALES"].replace(0, np.nan)
-        df["엔터방문자비율"] = df["엔터전체방문자수"] / df["TOTAL_COUNT"].replace(0, np.nan)
-        df["엔터활동밀도"] = df["엔터전체매출"] / df["전체인구"].replace(0, np.nan)
-        df["엔터매출밀도"] = df["엔터전체매출"] / df["엔터전체방문자수"].replace(0, np.nan)
-        df["유입지수"] = df["VISITING_POPULATION"] / (df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"]).replace(0, np.nan)
-
-        emo = ["엔터전체매출","유입지수","엔터매출비율","엔터전체방문자수","엔터방문자비율","엔터활동밀도","엔터매출밀도"]
-        X = df[emo].dropna()
-        if not X.empty and X.shape[0] > 1:  # PCA에는 최소 2개 이상의 샘플이 필요
-            pc1 = PCA(n_components=1).fit_transform(StandardScaler().fit_transform(X))
-            df.loc[X.index, "FEEL_IDX"] = (pc1 - pc1.min())/(pc1.max()-pc1.min()+1e-9)
-
-        return df
-    except Exception as e:
-        st.error(f"데이터 전처리 중 오류 발생: {e}")
-        return pd.DataFrame()
-
-@st.cache_data(show_spinner=True, ttl=3600)
-def get_data():
-    return preprocess()
-
-# 데이터 전처리 실행
-df_all = get_data()
-
-if df_all.empty:
-    st.error("처리된 데이터가 비어있습니다. 데이터를 확인해주세요.")
+try:
+    train_df, test_df, card_df, scco_df = load_data()
+except FileNotFoundError as e:
+    st.error(f"데이터 파일을 찾을 수 없습니다: {e}")
     st.stop()
 
-# 공통 바 차트 함수
-PALETTE = "rocket"
+if TARGET not in train_df.columns:
+    st.error(f"‘{TARGET}’ 컬럼이 없습니다.\n컬럼 목록: {train_df.columns.tolist()}")
+    st.stop()
 
-def bar(df, x, y, ttl):
-    if df.empty:
-        st.warning("차트를 그릴 데이터가 없습니다.")
-        return
-    
-    try:
-        fig, ax = plt.subplots(figsize=(14,7))
-        sns.barplot(data=df, x=x, y=y, palette=PALETTE, ax=ax)
-        ax.set_title(ttl)
-        ax.set_xlabel("")
-        ax.set_ylabel(y)
-        plt.xticks(rotation=45, ha="right")
+# 사이드바 ----------------------------------------------
+section = st.sidebar.selectbox("메뉴", ["상관관계", "피처 중요도", "시계열 비교", "산점도"])
+
+# 상관관계 ----------------------------------------------
+if section == "상관관계":
+    st.subheader("전체 변수 히트맵")
+    corr = train_df.drop(columns=["date"]).corr()
+    fig, ax = plt.subplots(figsize=(14, 10))
+    sns.heatmap(corr, cmap="coolwarm", center=0, square=True, cbar_kws={"shrink": .5}, ax=ax)
+    st.pyplot(fig)
+
+    st.divider()
+    st.subheader("Henry Hub vs 변수")
+    target_corr = corr[TARGET].sort_values(ascending=False)
+    st.dataframe(target_corr.to_frame("corr"))
+
+    vars_kor = [
+        "원유 지수", "가스 굴착기 수", "세계경기 지수", "가스 지수", "가스 수입량",
+        "철강 YoY", "캐나다 가스 수입량", "PMI 중간재 물가", "기준금리", "제조업 경기예상"
+    ]
+    corrs = [0.8767, 0.8132, 0.7175, 0.7158, 0.7107,
+             0.6722, 0.6632, 0.6500, 0.6013, 0.5865]
+    df_bar = pd.DataFrame({"var": vars_kor, "corr": corrs}).sort_values("corr", ascending=False)
+    df_bar["color"] = np.where(df_bar.corr > 0, "steelblue", "crimson")
+    fig_bar = go.Figure(go.Bar(x=df_bar.var, y=df_bar.corr,
+                               marker_color=df_bar.color,
+                               text=df_bar.corr.round(3),
+                               textposition="outside"))
+    fig_bar.update_layout(height=500, margin=dict(t=40, b=120))
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+# 피처 중요도 --------------------------------------------
+elif section == "피처 중요도":
+    st.subheader("XGBoost Feature Importance")
+    X = train_df.drop(columns=["date", TARGET])
+    y = train_df[TARGET]
+    X_tr, X_va, y_tr, y_va = train_test_split(X, y, test_size=0.2, random_state=42)
+    model = XGBRegressor(random_state=42)
+    model.fit(X_tr, y_tr)
+    imp = pd.Series(model.feature_importances_, index=X.columns).sort_values(ascending=False).head(20)
+    fig, ax = plt.subplots(figsize=(8, 10))
+    ax.barh(imp.index[::-1], imp.values[::-1], color="steelblue")
+    ax.set_xlabel("중요도")
+    st.pyplot(fig)
+
+# 시계열 비교 --------------------------------------------
+elif section == "시계열 비교":
+    st.subheader("표준화 시계열 비교")
+    cols = [
+        "Natural_Gas_Rotary_Rig_Count_USA",
+        "Kilian_Global_Economy_Index_WORLD",
+        "Natural_Gas_Imports_USA",
+        "BCOMCL_INDX",
+        "Crude_Steel_Accumulated_YoY",
+        "PPI_Mining_Sector_USA",
+        "DXY_INDX",
+    ]
+    missing = [c for c in cols if c not in train_df.columns]
+    if missing:
+        st.warning(f"다음 컬럼 없음: {missing}")
+    else:
+        scale_cols = cols + [TARGET]
+        scaler = StandardScaler()
+        scaled = scaler.fit_transform(train_df[scale_cols])
+        s_df = pd.DataFrame(scaled, columns=scale_cols)
+        s_df["date"] = pd.to_datetime(train_df["date"])
+
+        n_cols = 2
+        n_rows = int(np.ceil(len(cols) / n_cols))
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 4 * n_rows))
+        axes = axes.flatten()
+
+        for i, col in enumerate(cols):
+            axes[i].plot(s_df.date, s_df[col], label=col, color="steelblue")
+            axes[i].plot(s_df.date, s_df[TARGET], label="Henry Hub", color="darkred")
+            axes[i].legend(fontsize=8)
+            axes[i].tick_params(axis="x", rotation=45, labelsize=7)
+
+        for j in range(len(cols), len(axes)):
+            fig.delaxes(axes[j])
+
         st.pyplot(fig)
-    except Exception as e:
-        st.error(f"차트 생성 오류: {e}")
 
-# 사이드바
-st.sidebar.header("메뉴")
-page = st.sidebar.selectbox("페이지", ("방문자수 TOP","방문자 1인당 매출","유입지수 TOP","성별·연령 소비","상관관계"))
+# 산점도 --------------------------------------------------
+else:
+    st.subheader("변수별 산점도")
+    cols = [
+        "Natural_Gas_Rotary_Rig_Count_USA",
+        "Kilian_Global_Economy_Index_WORLD",
+        "BCOMCL_INDX",
+        "Crude_Steel_Accumulated_YoY",
+        "PPI_Mining_Sector_USA",
+        "DXY_INDX",
+    ]
+    valid_cols = [c for c in cols if c in train_df.columns]
+    n_cols = 2
+    n_rows = int(np.ceil(len(valid_cols) / n_cols))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 5 * n_rows))
+    axes = axes.flatten()
 
-a = df_all  # alias
+    for i, col in enumerate(valid_cols):
+        sns.regplot(data=train_df, x=col, y=TARGET,
+                    ax=axes[i], fit_reg=False, scatter_kws={"alpha": .6})
+        axes[i].set_xlabel(col)
+        axes[i].set_ylabel("Henry Hub")
 
-try:
-    if page == "방문자수 TOP":
-        g = a.groupby("DISTRICT_KOR_NAME")["엔터전체방문자수"].sum().nlargest(30).reset_index()
-        bar(g, "DISTRICT_KOR_NAME","엔터전체방문자수","방문자수 상위 30개")
-    elif page == "방문자 1인당 매출":
-        t = a.groupby("DISTRICT_KOR_NAME").agg({"엔터전체매출":"sum","엔터전체방문자수":"sum"})
-        t["방문자1인당엔터매출"] = t["엔터전체매출"] / t["엔터전체방문자수"].replace(0, np.nan)
-        g = t.nlargest(30,"방문자1인당엔터매출").reset_index()
-        bar(g,"DISTRICT_KOR_NAME","방문자1인당엔터매출","방문자 1인당 엔터매출")
-    elif page == "유입지수 TOP":
-        g = a.groupby("DISTRICT_KOR_NAME")["유입지수"].mean().nlargest(30).reset_index()
-        bar(g,"DISTRICT_KOR_NAME","유입지수","유입지수 상위 30개")
-    elif page == "성별·연령 소비":
-        gender_pal = {"M":"#3498db","F":"#e75480"}
-        view = st.radio("보기", ("1인당 매출","엔터 방문","방문 1회당 매출"))
-        if view == "1인당 매출":
-            g = a.groupby(["AGE_GROUP","GENDER"])["TOTAL_SALES"].mean().reset_index()
-            y, ttl = "TOTAL_SALES","성별·연령 1인당 매출"
-        elif view == "엔터 방문":
-            g = a.groupby(["AGE_GROUP","GENDER"])["엔터전체방문자수"].sum().reset_index()
-            y, ttl = "엔터전체방문자수","성별·연령 엔터 방문"
-        else:
-            g = a.groupby(["AGE_GROUP","GENDER"])["엔터매출밀도"].mean().reset_index()
-            y, ttl = "엔터매출밀도","성별·연령 방문 1회당 매출"
-        fig, ax = plt.subplots(figsize=(10,6))
-        sns.barplot(data=g, x="AGE_GROUP", y=y, hue="GENDER", palette=gender_pal, ax=ax)
-        ax.set_title(ttl); ax.set_xlabel("AGE"); ax.set_ylabel(y); st.pyplot(fig)
-    else:  # 상관관계
-        cols = ["엔터전체매출","유입지수","엔터매출비율","엔터전체방문자수","엔터방문자비율","엔터활동밀도","엔터매출밀도","FEEL_IDX"]
-        cdf = a[cols].dropna()
-        if cdf.shape[0] < 2:
-            st.warning("데이터 샘플이 너무 작아요")
-        else:
-            corr = cdf.corr()
-            fig, ax = plt.subplots(figsize=(8,7))
-            sns.heatmap(corr, annot=True, cmap="coolwarm", vmin=-1, vmax=1, ax=ax)
-            ax.set_title("지표 상관관계"); st.pyplot(fig)
-            fc = corr["FEEL_IDX"].drop("FEEL_IDX").sort_values(ascending=False)
-            fig2, ax2 = plt.subplots(figsize=(7,5))
-            sns.barplot(y=fc.index, x=fc.values, palette=PALETTE, ax=ax2); ax2.set_xlim(-1,1)
-            ax2.set_title("FEEL_IDX 상관계수"); st.pyplot(fig2)
-except Exception as e:
-    st.error(f"차트 생성 중 오류가 발생했습니다: {e}")
+    for j in range(len(valid_cols), len(axes)):
+        fig.delaxes(axes[j])
 
-st.success("완료"); 
+    st.pyplot(fig)
+
+st.sidebar.caption("© 2025 Park Sungsoo")
