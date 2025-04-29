@@ -142,4 +142,4 @@ with tab3:
         st.info("선택된 데이터가 없습니다.")
 
 st.divider()
-st.caption("© 2025 데이터 출처: 리포지토리 data 폴더")
+st.caption("© 2025 데이터 출처: snowflake park")
