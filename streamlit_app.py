@@ -115,10 +115,11 @@ c1, c2, c3 = st.columns(3)
 if not view.empty:
     c1.metric("평균 FEEL_IDX", f"{view['FEEL_IDX'].mean():.2f}")
     c2.metric("평균 유입지수", f"{view['유입지수'].mean():.2f}")
-c3.metric("평균 엔터활동밀도", f"{view['엔터활동밀도'].mean():.2f}")
-    else:
+    c3.metric("평균 엔터활동밀도", f"{view['엔터활동밀도'].mean():.2f}")
+else:
     c1.metric("평균 FEEL_IDX", "-")
-    c2.metric("평균 방문자 1인당 엔터매출", "-")
+    c2.metric("평균 유입지수", "-")
+    c3.metric("평균 엔터활동밀도", "-")
     
 # 탭 시각화
 with st.tabs(["지수 상위 지역", "성별·연령 분석", "산점도"]) as (tab1, tab2, tab3):
