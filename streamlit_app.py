@@ -56,7 +56,8 @@ df = pd.merge(df, card_df, on=merge_keys + ["AGE_GROUP", "GENDER", "STANDARD_YEA
 # 필수 컬럼 확인
 required_cols = ["RESIDENTIAL_POPULATION", "WORKING_POPULATION", "VISITING_POPULATION"]
 if not all(col in df.columns for col in required_cols):
-    st.stop("❌ 인구 관련 컬럼이 누락되어 분석을 진행할 수 없습니다.")
+    st.error("❌ 인구 관련 컬럼이 누락되어 분석을 진행할 수 없습니다.")
+    st.stop()
 
 # 파생변수 생성
 enter_count_columns = [
