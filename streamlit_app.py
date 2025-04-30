@@ -51,7 +51,7 @@ fp_df, card_df, scco_df = load_data()
 # 병합
 merge_keys = ["PROVINCE_CODE", "CITY_CODE", "DISTRICT_CODE"]
 df = pd.merge(fp_df, scco_df[merge_keys + ["DISTRICT_KOR_NAME"]], on=merge_keys, how="left")
-df = pd.merge(df, card_df, on=merge_keys + ["AGE_GROUP", "GENDER", "STANDARD_YEAR_MONTH"], how="left")
+df = pd.merge(df, card_df, on=merge_keys, how="left")  # 병합 범위 축소
 
 # 필수 컬럼 확인
 required_cols = ["RESIDENTIAL_POPULATION", "WORKING_POPULATION", "VISITING_POPULATION"]
