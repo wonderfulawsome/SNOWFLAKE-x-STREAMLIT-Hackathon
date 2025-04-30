@@ -75,15 +75,13 @@ count_cols = [
 ]
 df["엔터전체방문자수"] = df[count_cols].sum(axis=1)
 
-# 유입지수 = 방문자수 / (거주자 + 근로자)
-df["유입지수"] = df["VISITING_POPULATION"] / (df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"]).replace(0, np.nan)
 
 # 방문자 1인당 엔터매출 = 엔터전체매출 / 엔터전체방문자수
 
 df["방문자1인당엔터매출"] = df["엔터전체매출"] / df["엔터전체방문자수"].replace(0, np.nan)
 
 # FEEL_IDX 계산 (가능한 지표 기반)
-pca_vars = ["유입지수", "방문자1인당엔터매출"]
+pca_vars = ["방문자1인당엔터매출"]
 X = df[pca_vars].dropna()
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
@@ -120,10 +118,7 @@ c1, c2, c3 = st.columns(3)
 if not view.empty:
     c1.metric("평균 FEEL_IDX", f"{view['FEEL_IDX'].mean():.2f}")
     c2.metric("평균 방문자 1인당 엔터매출", f"{view['방문자1인당엔터매출'].mean():.2f}")
-    c3.metric("평균 유입지수", f"{view['유입지수'].mean():.2f}")
-else:
-    c1.metric("평균 FEEL_IDX", "-")
-    c2.metric("평균 방문자 1인당 엔터매출", "-")
+    ic("평균 방문자 1인당 엔터매출", "-")
     c3.metric("평균 유입지수", "-")
 
 # 탭 시각화
@@ -151,7 +146,7 @@ with st.tabs(["지수 상위 지역", "성별·연령 분석", "산점도"]) as 
     with tab3:
         st.subheader("산점도 분석")
         if not view.empty:
-            x_axis = st.selectbox("X축 변수", ["방문자1인당엔터매출", "유입지수"])
+            x_axis = st.selectbox("X축 변수", ["방문자1인당엔터매출"])
             y_axis = st.selectbox("Y축 변수", ["FEEL_IDX"])
             if all(col in view.columns for col in [x_axis, y_axis]):
                 fig, ax = plt.subplots(figsize=(6, 4))
