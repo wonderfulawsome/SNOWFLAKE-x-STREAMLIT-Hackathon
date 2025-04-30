@@ -60,11 +60,16 @@ if not all(col in df.columns for col in required_cols):
     st.stop()
 
 # 파생변수
+# 전체인구
 df["전체인구"] = df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"] + df["VISITING_POPULATION"]
+
+# 소비활력지수 = 방문자수 / 전체인구
 df["소비활력지수"] = df["VISITING_POPULATION"] / df["전체인구"].replace(0, np.nan)
+
+# 유입지수 = 방문자수 / (거주자 + 근로자)
 df["유입지수"] = df["VISITING_POPULATION"] / (df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"]).replace(0, np.nan)
 
-# FEEL_IDX 계산
+# FEEL_IDX 계산 (가능한 지표 기반)
 pca_vars = ["소비활력지수", "유입지수"]
 X = df[pca_vars].dropna()
 scaler = StandardScaler()
