@@ -61,6 +61,12 @@ if not all(col in df.columns for col in required_cols):
 
 # 파생변수
 
+# 전체인구
+df["전체인구"] = df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"] + df["VISITING_POPULATION"]
+
+# 유입지수 = 방문자수 / (거주자 + 근로자)
+df["유입지수"] = df["VISITING_POPULATION"] / (df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"]).replace(0, np.nan)
+
 # 엔터전체매출 계산
 sales_cols = [
     "FOOD_SALES", "COFFEE_SALES", "BEAUTY_SALES", "ENTERTAINMENT_SALES",
@@ -68,20 +74,11 @@ sales_cols = [
 ]
 df["엔터전체매출"] = df[sales_cols].sum(axis=1)
 
-# 엔터전체방문자수 계산
-count_cols = [
-    "FOOD_COUNT", "COFFEE_COUNT", "BEAUTY_COUNT", "ENTERTAINMENT_COUNT",
-    "SPORTS_CULTURE_LEISURE_COUNT", "TRAVEL_COUNT", "CLOTHING_ACCESSORIES_COUNT"
-]
-df["엔터전체방문자수"] = df[count_cols].sum(axis=1)
-
-
-# 방문자 1인당 엔터매출 = 엔터전체매출 / 엔터전체방문자수
-
-df["방문자1인당엔터매출"] = df["엔터전체매출"] / df["엔터전체방문자수"].replace(0, np.nan)
+# 엔터활동밀도 = 엔터전체매출 / 전체인구
+df["엔터활동밀도"] = df["엔터전체매출"] / df["전체인구"].replace(0, np.nan)
 
 # FEEL_IDX 계산 (가능한 지표 기반)
-pca_vars = ["방문자1인당엔터매출"]
+pca_vars = ["유입지수", "엔터전체매출", "엔터활동밀도"]
 X = df[pca_vars].dropna()
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
@@ -117,10 +114,12 @@ c1, c2, c3 = st.columns(3)
 
 if not view.empty:
     c1.metric("평균 FEEL_IDX", f"{view['FEEL_IDX'].mean():.2f}")
-    c2.metric("평균 방문자 1인당 엔터매출", f"{view['방문자1인당엔터매출'].mean():.2f}")
-    ic("평균 방문자 1인당 엔터매출", "-")
-    c3.metric("평균 유입지수", "-")
-
+    c2.metric("평균 유입지수", f"{view['유입지수'].mean():.2f}")
+c3.metric("평균 엔터활동밀도", f"{view['엔터활동밀도'].mean():.2f}")
+    else:
+    c1.metric("평균 FEEL_IDX", "-")
+    c2.metric("평균 방문자 1인당 엔터매출", "-")
+    
 # 탭 시각화
 with st.tabs(["지수 상위 지역", "성별·연령 분석", "산점도"]) as (tab1, tab2, tab3):
     with tab1:
@@ -146,7 +145,7 @@ with st.tabs(["지수 상위 지역", "성별·연령 분석", "산점도"]) as 
     with tab3:
         st.subheader("산점도 분석")
         if not view.empty:
-            x_axis = st.selectbox("X축 변수", ["방문자1인당엔터매출"])
+            x_axis = st.selectbox("X축 변수", ["유입지수", "엔터전체매출", "엔터활동밀도"])
             y_axis = st.selectbox("Y축 변수", ["FEEL_IDX"])
             if all(col in view.columns for col in [x_axis, y_axis]):
                 fig, ax = plt.subplots(figsize=(6, 4))
