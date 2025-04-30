@@ -51,7 +51,7 @@ fp_df, card_df, scco_df = load_data()
 # 병합
 merge_keys = ["PROVINCE_CODE", "CITY_CODE", "DISTRICT_CODE"]
 df = pd.merge(fp_df, scco_df[merge_keys + ["DISTRICT_KOR_NAME"]], on=merge_keys, how="left")
-df = pd.merge(df, card_df, on=merge_keys, how="left")  # 병합 범위 축소
+df = pd.merge(df, card_df, on=merge_keys, how="left")
 
 # 필수 컬럼 확인
 required_cols = ["RESIDENTIAL_POPULATION", "WORKING_POPULATION", "VISITING_POPULATION"]
@@ -59,30 +59,13 @@ if not all(col in df.columns for col in required_cols):
     st.error("❌ 인구 관련 컬럼이 누락되어 분석을 진행할 수 없습니다.")
     st.stop()
 
-# 파생변수 생성
-enter_count_columns = [
-    'FOOD_COUNT', 'COFFEE_COUNT', 'BEAUTY_COUNT', 'ENTERTAINMENT_COUNT',
-    'SPORTS_CULTURE_LEISURE_COUNT', 'TRAVEL_COUNT', 'CLOTHING_ACCESSORIES_COUNT'
-]
-
-sales_columns = [
-    'FOOD_SALES', 'COFFEE_SALES', 'BEAUTY_SALES', 'ENTERTAINMENT_SALES',
-    'SPORTS_CULTURE_LEISURE_SALES', 'TRAVEL_SALES', 'CLOTHING_ACCESSORIES_SALES'
-]
-
+# 파생변수
 df["전체인구"] = df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"] + df["VISITING_POPULATION"]
-df["엔터전체매출"] = df[sales_columns].sum(axis=1)
-df["엔터전체방문자수"] = df[enter_count_columns].sum(axis=1)
-df["엔터활동밀도"] = df["엔터전체매출"] / df["전체인구"].replace(0, np.nan)
-df["방문자1인당엔터매출"] = df["엔터전체매출"] / df["엔터전체방문자수"].replace(0, np.nan)
-df["유입지수"] = df["VISITING_POPULATION"] / (df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"]).replace(0, np.nan)
-df["엔터매출비율"] = df["엔터전체매출"] / df["TOTAL_SALES"].replace(0, np.nan)
-df["엔터방문자비율"] = df["엔터전체방문자수"] / df["TOTAL_COUNT"].replace(0, np.nan)
-df["엔터매출밀도"] = df["엔터전체매출"] / df["엔터전체방문자수"].replace(0, np.nan)
 df["소비활력지수"] = df["VISITING_POPULATION"] / df["전체인구"].replace(0, np.nan)
+df["유입지수"] = df["VISITING_POPULATION"] / (df["RESIDENTIAL_POPULATION"] + df["WORKING_POPULATION"]).replace(0, np.nan)
 
 # FEEL_IDX 계산
-pca_vars = ["엔터전체매출", "유입지수", "엔터매출비율", "엔터전체방문자수", "엔터방문자비율", "엔터활동밀도", "엔터매출밀도"]
+pca_vars = ["소비활력지수", "유입지수"]
 X = df[pca_vars].dropna()
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
