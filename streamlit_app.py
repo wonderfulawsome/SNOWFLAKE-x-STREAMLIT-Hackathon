@@ -51,6 +51,7 @@ fp_df, card_df, scco_df = load_data()
 # 병합
 merge_keys = ["PROVINCE_CODE", "CITY_CODE", "DISTRICT_CODE"]
 df = pd.merge(fp_df, scco_df[merge_keys + ["DISTRICT_KOR_NAME"]], on=merge_keys, how="left")
+df = pd.merge(df, card[['PROVINCE_CODE', 'CITY_CODE', 'DISTRICT_CODE']], on = merge_keys, how='left')
 
 # 파생변수
 enter_count_columns = [
