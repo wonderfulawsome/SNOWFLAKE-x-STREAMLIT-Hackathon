@@ -160,11 +160,6 @@ streamlit run app.py
 - 최초 실행 시 Streamlit 캐시로 인해 약간의 로딩이 필요할 수 있음
 - Snowflake 쿼리 결과에 따라 데이터양이 많으면 샘플링 적용됨 (`1%`)
 
----
-
-## 작성자
-**Author**: @yourname  
-(문의나 개선사항은 언제든지 오픈!)
 
 ---
 
